@@ -117,7 +117,7 @@ public:
         host.name = "Soundeasel DAW";
         host.vendor = "Soundeasel";
         host.url = "https://github.com/shenphenchoedron-hue/Soundeasel-DAW";
-        host.version = "0.4";
+        host.version = JUCE_APPLICATION_VERSION_STRING;
         host.get_extension = [](const clap_host_t* h, const char* ext) -> const void* { return self(h)->hostExtension(ext); };
         // These may be called from the audio thread: only set flags, a message-thread timer acts on them.
         host.request_restart = [](const clap_host_t* h) { self(h)->restartRequested = true; };
