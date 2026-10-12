@@ -1,0 +1,3 @@
+build*/
+external/JUCE/
+__pycache__/
