@@ -35,6 +35,9 @@ public:
     // just before it is taken out of the engine (lets e.g. CLAP plugins stop processing
     // on the audio thread, as their spec requires).
     virtual void prepareToRemove() {}
+    // Message thread, before prepare(): the instance renders offline (song export), so it
+    // may use its highest quality and is not processed in real time.
+    virtual void setNonRealtime(bool) {}
     virtual juce::MemoryBlock getState() = 0;
     virtual void setState(const juce::MemoryBlock&) = 0;
 

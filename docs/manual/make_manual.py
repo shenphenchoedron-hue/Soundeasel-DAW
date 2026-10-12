@@ -173,7 +173,7 @@ def content_da():
         "<b>Akkordtilstand</b>: én tangent giver en hel akkord i den valgte skala – med omvendinger, 7'ere og 9'ere.",
         "Forslag til næste akkord ud fra kvintcirklen.",
         "Optagelse fra MIDI-keyboard, også i loop.",
-        "21 indbyggede bandinstrumenter (Rock, Pop, Jazz) – og dine egne SoundFont-filer (.sf2).",
+        "22 indbyggede bandinstrumenter (Rock, Pop, Jazz) – og dine egne SoundFont-filer (.sf2).",
         "Plugins: VST3, Audio Unit (Mac), LV2 (Linux) og CLAP.",
         "Import og eksport af MIDI og MusicXML (MuseScore, Sibelius, Finale, Dorico).",
         "Fortryd/gentag på alt.",
@@ -309,6 +309,7 @@ def content_da():
         ["Rock Organ", "Electric Bass (Finger)", "Tenor Sax"],
         ["", "Strings", "Trumpet"],
         ["", "", "Vibraphone"],
+        ["", "", "Violin"],
     ], [55, 55, 55])
     h2("Trommesæt")
     p("Trommesættene følger General MIDI-standarden, så trommespor fra andre programmer passer direkte. De vigtigste:")
@@ -493,10 +494,33 @@ def content_da():
         ["<b>File → New / Open / Save / Save as</b>", "Projekter gemmes som <b>.mcproj</b>. Spor, toner, instrumenter med "
                                                         "deres indstillinger, farver, tempo og loop kommer med."],
         ["<b>File → Import MIDI file...</b>", "Lægger sporene fra en .mid-fil ind i projektet."],
+        ["<b>File → Export song...</b> (⌘/Ctrl+E)", "Gemmer den færdige sang som WAV, MP3, OGG, FLAC, MIDI eller M4A (se nedenfor)."],
         ["<b>File → Export MIDI file...</b>", "Gemmer alle spor som en standard MIDI-fil, der kan åbnes i alle musikprogrammer."],
         ["<b>File → Import MusicXML (MuseScore)...</b>", "Indlæser .musicxml, .xml eller .mxl. Én stemme bliver ét spor."],
         ["<b>File → Export MusicXML (MuseScore)...</b>", "Gemmer noder, som kan åbnes i MuseScore, Sibelius, Finale og Dorico."],
     ], [62, 103])
+    h2("Eksport af den færdige sang")
+    p("<b>File → Export song...</b> laver sangen om til en lydfil, som kan afspilles overalt, deles eller brændes på CD. "
+      "Sangen regnes ud hurtigere end realtid gennem alle instrumenter, effekter og mixeren, så filen lyder præcis som "
+      "afspilningen: mute, solo, volumen, panorering, EQ, kompressor, rumklang, volumenlinjer og lydklip kommer med. "
+      "Et vindue viser, hvor langt den er; <b>Cancel</b> stopper eksporten.")
+    table(["Format", "Brug"], [
+        ["<b>WAV</b>", "Ukomprimeret, den bedste kvalitet – til CD, video og videre arbejde. 16, 24 eller 32-bit float."],
+        ["<b>FLAC</b>", "Tabsfri: samme lyd som WAV i cirka den halve størrelse."],
+        ["<b>MP3</b>", "Spiller overalt; små filer. 320 kbps lyder praktisk talt som originalen."],
+        ["<b>OGG Vorbis</b>", "Frit, åbent format med små filer og meget god lyd."],
+        ["<b>M4A (AAC)</b>", "Som i Apple Music og iTunes; små filer med meget god lyd."],
+        ["<b>MIDI</b>", "Kun toner, ingen lyd – til andre musik- og nodeprogrammer."],
+    ], [35, 130])
+    bullets([
+        "<b>Range</b>: hele sangen, eller kun stykket mellem loop-markørerne.",
+        "<b>Let reverb and released notes ring out</b>: fortsætter efter sidste tone, til lyden er klinget ud.",
+        "<b>Normalize</b>: gør sangen så høj som muligt uden forvrængning (højeste top på -1 dB). Er sangen så høj, at den "
+        "forvrænges, fortæller programmet det efter eksporten.",
+        "WAV, FLAC og OGG kræver ikke noget ekstra. M4A bruger den encoder, der er indbygget i macOS. MP3 – og M4A på "
+        "Windows og Linux – kræver det gratis program <b>LAME</b> eller <b>FFmpeg</b>. Det findes automatisk; ellers viser "
+        "programmet, hvordan det installeres, eller du vælger det med <b>Locate encoder...</b>.",
+    ])
     h2("MusicXML – til og fra noder")
     p("<b>Eksport</b>: toneart (fra Root/Scale), taktart og tempo kommer med. Tonerne afrundes til nærmeste 1/16, toner "
       "over taktstreger bindes, og akkorder skrives som akkorder. Klaverspor med stort toneomfang får to systemer.")
@@ -531,6 +555,7 @@ def content_da():
         ["⌘/Ctrl+Shift+Z eller ⌘/Ctrl+Y", "Gentag"],
         ["⌘/Ctrl+N / O / S", "Nyt projekt / Åbn / Gem"],
         ["⌘/Ctrl+Shift+S", "Gem som"],
+        ["⌘/Ctrl+E", "Eksportér sangen (WAV, MP3, OGG, FLAC, MIDI, M4A)"],
         ["⌘/Ctrl+A", "Markér alle toner"],
         ["⌘/Ctrl+C / X / V", "Kopiér / klip / indsæt toner"],
         ["Delete / Backspace", "Slet markerede toner"],
@@ -562,6 +587,8 @@ def content_da():
     bullets([
         "<b>GeneralUser GS</b> – de indbyggede instrumenter – af S. Christian Collins. "
         "https://www.schristiancollins.com/generaluser. Licensen følger med som GeneralUser-GS-LICENSE.txt.",
+        "<b>Valiant Violin v2 GM</b> – den indbyggede violin (Jazz) – af Giovanni Valentino og Mike77154 "
+        "(WTFPL-licens). https://musical-artifacts.com/artifacts/1796. Licensen følger med som Valiant-Violin-LICENSE.txt.",
         "<b>TinySoundFont</b> – afspilning af SoundFonts – af Bernhard Schelling (MIT-licens). "
         "https://github.com/schellingb/TinySoundFont",
         "<b>JUCE</b> – programbiblioteket, MIDI Composer er bygget på. https://juce.com",

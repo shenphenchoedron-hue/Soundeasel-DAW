@@ -163,23 +163,33 @@ juce::File userFile(const UserRef& r) { return userFolderRef().getChildFile(r.re
 
 } // namespace
 
+juce::File bundledFile(const juce::String& name)
+{
+    const auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
+    const auto app = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
+    const juce::File candidates[] = {
+        app.getChildFile("Contents/Resources").getChildFile(name),          // macOS bundle
+        exe.getParentDirectory().getChildFile(name),                       // Windows / Linux tarball
+        exe.getParentDirectory().getChildFile("../share/soundeasel-daw").getChildFile(name),
+        juce::File("/usr/share/soundeasel-daw").getChildFile(name),         // Debian package
+        juce::File("/usr/share/midi-composer").getChildFile(name),          // MIDI Composer package
+    };
+    for (auto& c : candidates) if (c.existsAsFile()) return c;
+    return juce::File();
+}
+
 juce::File builtinFile()
 {
-    static const juce::File found = [] {
-        const auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
-        const auto app = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
-        const juce::File candidates[] = {
-            app.getChildFile("Contents/Resources").getChildFile(kBuiltinSoundFontFile),          // macOS bundle
-            exe.getParentDirectory().getChildFile(kBuiltinSoundFontFile),                       // Windows / Linux tarball
-            exe.getParentDirectory().getChildFile("../share/soundeasel-daw").getChildFile(kBuiltinSoundFontFile),
-            juce::File("/usr/share/soundeasel-daw").getChildFile(kBuiltinSoundFontFile),         // Debian package
-            juce::File("/usr/share/midi-composer").getChildFile(kBuiltinSoundFontFile),          // MIDI Composer package
-        };
-        for (auto& c : candidates) if (c.existsAsFile()) return c;
-        return juce::File();
-    }();
+    static const juce::File found = bundledFile(kBuiltinSoundFontFile);
     return found;
 }
+
+namespace {
+juce::File fileFor(const BuiltinInstrument& b)
+{
+    return b.file ? bundledFile(b.file) : builtinFile();
+}
+} // namespace
 
 juce::File userSoundsFolder(const juce::File& dataDir)
 {
@@ -192,9 +202,12 @@ juce::File userSoundsFolder(const juce::File& dataDir)
 std::vector<PluginInfo> builtinInstruments()
 {
     std::vector<PluginInfo> out;
-    if (!builtinFile().existsAsFile()) return out;
     for (auto& b : kBuiltinInstruments)
-        out.push_back({"Internal", std::string(kBuiltinPrefix) + b.id, b.name, "GeneralUser GS", b.group, {}});
+        if (fileFor(b).existsAsFile())
+            out.push_back({"Internal", std::string(kBuiltinPrefix) + b.id, b.name,
+                           b.file ? juce::File(b.file).getFileNameWithoutExtension().replaceCharacter('_', ' ').toStdString()
+                                  : std::string("GeneralUser GS"),
+                           b.group, {}});
     return out;
 }
 
@@ -232,7 +245,7 @@ bool isSoundFontInfo(const PluginInfo& i)
 
 bool stillExists(const PluginInfo& i)
 {
-    if (findBuiltin(i.identifier)) return builtinFile().existsAsFile();
+    if (auto* b = findBuiltin(i.identifier)) return fileFor(*b).existsAsFile();
     UserRef r;
     return parseUser(i.identifier, r) && userFile(r).existsAsFile();
 }
@@ -242,8 +255,11 @@ std::unique_ptr<InstrumentPlugin> create(const PluginInfo& info, double sr, int 
     juce::File file;
     int bank = 0, preset = 0;
     if (auto* b = findBuiltin(info.identifier)) {
-        file = builtinFile();
-        if (!file.existsAsFile()) { error = "The built-in sounds (GeneralUser GS) are not installed"; return nullptr; }
+        file = fileFor(*b);
+        if (!file.existsAsFile()) {
+            error = "The built-in sound file " + juce::String(b->file ? b->file : kBuiltinSoundFontFile) + " is not installed";
+            return nullptr;
+        }
         bank = b->bank; preset = b->preset;
     } else {
         UserRef r;

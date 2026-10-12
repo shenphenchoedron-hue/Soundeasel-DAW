@@ -48,9 +48,11 @@ public:
 
     juce::AudioFormatManager formats;
 
-private:
-    // Decodes and resamples; runs on a pool thread. nullptr if the file is unusable.
+    // Decodes and resamples, blocking; safe on any thread (the song export uses it for
+    // rates that are not cached). nullptr if the file is unusable.
     static std::shared_ptr<AudioFileData> decode(const std::string& path, double sampleRate);
+
+private:
     void setRate(double sampleRate);
 
     std::map<std::string, std::shared_ptr<const AudioFileData>> cache;

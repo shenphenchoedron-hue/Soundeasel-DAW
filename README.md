@@ -47,7 +47,7 @@ effects) are hosted with the CLAP SDK headers in `src/app/third_party/clap` (MIT
 Soundeasel DAW makes sound without any plugins: the most common band
 instruments are built in, grouped as **Rock**, **Pop** and **Jazz** under
 *Internal* in each track's instrument menu (drums, guitars, basses, piano,
-electric piano, organ, ukulele, strings, sax, trumpet, vibraphone).
+electric piano, organ, ukulele, strings, sax, trumpet, vibraphone, violin).
 
 Want more? Copy SoundFont files (`.sf2`) into the Sounds folder
 (*Options → Open Sounds folder*), then *Options → Rescan plugins*. Every preset
@@ -55,7 +55,8 @@ appears under *SoundFonts*.
 
 Credits: built-in sounds are **GeneralUser GS** by S. Christian Collins
 (https://www.schristiancollins.com/generaluser, license shipped as
-`GeneralUser-GS-LICENSE.txt`). SoundFont playback uses **TinySoundFont** by
+`GeneralUser-GS-LICENSE.txt`). The Jazz violin is **Valiant Violin v2 GM** by Giovanni Valentino with
+Mike77154 (WTFPL, `resources/sounds`, license shipped as `Valiant-Violin-LICENSE.txt`). SoundFont playback uses **TinySoundFont** by
 Bernhard Schelling (MIT). The SoundFont is downloaded at configure time
 (`-DMC_BUNDLE_SOUNDFONT=OFF` to skip).
 
@@ -72,7 +73,7 @@ Linux deps: libasound2-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-
 ## Layout
 - `src/core` – pure C++ (no JUCE): `dsp` (channel strip EQ, compressor and reverb), `theory` (Scale/Chord Engine), `model` (Track/MidiTrack/AudioTrack with clips, Project with Mains, undoable Commands),
   `sequencer` (timing, playback snapshots), `input` (ChordInputProcessor, modifier mapping, MIDI Learn), `io` (JSON project format v1, SMF import/export).
-- `src/app` – JUCE: `audio` (realtime engine: sequencer, audio clips, input monitoring/recording, channel strips, Mains; audio file cache), `midi` (device manager), `recording`, `plugins` (InstrumentPlugin interface; Internal, JUCE [VST3/AU/LV2], CLAP stub hosts), `settings`, `gui`.
+- `src/app` – JUCE: `audio` (realtime engine: sequencer, audio clips, input monitoring/recording, channel strips, Mains; audio file cache; offline song export), `midi` (device manager), `recording`, `plugins` (InstrumentPlugin interface; Internal, JUCE [VST3/AU/LV2], CLAP stub hosts), `settings`, `gui`.
 - `tests` – unit tests.
 
 ## Usage
@@ -101,5 +102,14 @@ Linux deps: libasound2-dev libfreetype-dev libx11-dev libxrandr-dev libxinerama-
 - Metronome and count-in: *Click* (or K) turns the metronome on (right-click for the volume); *Count-in* sets
   0/1/2/4 bars of metronome before recording starts. Grid and Snap are in the bar above the piano roll.
 - Timeline: click = set position, Shift/right-drag = loop range.
-- Keys: Space play/stop, R record, L loop, C chord mode, F3 mixer, Home return, Ctrl+Z/Y undo/redo, Ctrl+S/O/N.
+- Export the finished song: *File > Export song* (Ctrl/Cmd+E). Choose **WAV**, **MP3**, **OGG Vorbis**, **FLAC**,
+  **MIDI** or **M4A (AAC)**, the sample rate, bit depth or bit rate, the whole song or only the loop region, whether
+  reverb and note releases may ring out at the end, and optional normalising (loudest peak at -1 dB). The song is
+  rendered offline (faster than real time, with a progress window and Cancel) through copies of all instruments,
+  effect plugins and channel strips, so the file sounds exactly like playback through the Mains - mute, solo,
+  volume, pan, EQ, compressor, reverb, volume lines and audio clips included. WAV, FLAC and OGG are written by the
+  app itself; M4A uses the AAC encoder built into macOS. MP3 (and M4A on Windows/Linux) needs the free encoder
+  **LAME** or **FFmpeg** (`brew install lame`, `sudo apt install lame`, or ffmpeg.org); it is found automatically,
+  or choose it with *Locate encoder...* the first time. MIDI writes the notes only (same as *Export MIDI file*).
+- Keys: Space play/stop, R record, L loop, C chord mode, F3 mixer, Home return, Ctrl+Z/Y undo/redo, Ctrl+S/O/N, Ctrl+E export.
 - Default modifier keys: C1=1st inv, D1=2nd inv, C#1=7, D#1=9 (change/MIDI Learn in Options > Settings).

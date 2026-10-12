@@ -42,7 +42,7 @@ def content_en(m):
         "<b>Chord mode</b>: one key plays a whole chord in the selected scale – with inversions, 7ths and 9ths.",
         "Next-chord suggestions based on the circle of fifths.",
         "Recording from a MIDI keyboard, also in a loop.",
-        "21 built-in band instruments (Rock, Pop, Jazz) – plus your own SoundFont files (.sf2).",
+        "22 built-in band instruments (Rock, Pop, Jazz) – plus your own SoundFont files (.sf2).",
         "Plugins: VST3, Audio Unit (Mac), LV2 (Linux) and CLAP.",
         "Import and export of MIDI and MusicXML (MuseScore, Sibelius, Finale, Dorico).",
         "Undo/redo for everything.",
@@ -181,6 +181,7 @@ def content_en(m):
         ["Rock Organ", "Electric Bass (Finger)", "Tenor Sax"],
         ["", "Strings", "Trumpet"],
         ["", "", "Vibraphone"],
+        ["", "", "Violin"],
     ], [55, 55, 55])
     h2("Drum kits")
     p("The drum kits follow the General MIDI standard, so drum tracks from other programs fit directly. The most "
@@ -367,10 +368,33 @@ def content_en(m):
         ["<b>File → New / Open / Save / Save as</b>", "Projects are saved as <b>.mcproj</b>. Tracks, notes, instruments "
                                                         "with their settings, colours, tempo and loop are included."],
         ["<b>File → Import MIDI file...</b>", "Adds the tracks of a .mid file to the project."],
+        ["<b>File → Export song...</b> (⌘/Ctrl+E)", "Saves the finished song as WAV, MP3, OGG, FLAC, MIDI or M4A (see below)."],
         ["<b>File → Export MIDI file...</b>", "Saves all tracks as a standard MIDI file that any music program can open."],
         ["<b>File → Import MusicXML (MuseScore)...</b>", "Loads .musicxml, .xml or .mxl. Each part becomes a track."],
         ["<b>File → Export MusicXML (MuseScore)...</b>", "Saves a score that opens in MuseScore, Sibelius, Finale and Dorico."],
     ], [62, 103])
+    h2("Exporting the finished song")
+    p("<b>File → Export song...</b> turns the song into an audio file you can play anywhere, share or put on a CD. "
+      "The song is rendered faster than real time through all instruments, effects and the mixer, so the file sounds "
+      "exactly like playback: mute, solo, volume, pan, EQ, compressor, reverb, volume lines and audio clips are included. "
+      "A progress window shows how far it is; <b>Cancel</b> stops it.")
+    table(["Format", "Use"], [
+        ["<b>WAV</b>", "Uncompressed, the best quality – for CDs, video and further work. 16, 24 or 32-bit float."],
+        ["<b>FLAC</b>", "Lossless: the same sound as WAV in about half the size."],
+        ["<b>MP3</b>", "Plays everywhere; small files. 320 kbps sounds practically like the original."],
+        ["<b>OGG Vorbis</b>", "Free, open format with small files and very good sound."],
+        ["<b>M4A (AAC)</b>", "As used by Apple Music and iTunes; small files with very good sound."],
+        ["<b>MIDI</b>", "Notes only, no sound – for other music and notation programs."],
+    ], [35, 130])
+    bullets([
+        "<b>Range</b>: the whole song, or only the part between the loop markers.",
+        "<b>Let reverb and released notes ring out</b>: keeps rendering after the last note until the sound has died away.",
+        "<b>Normalize</b>: makes the song as loud as possible without distortion (loudest peak at -1 dB). If the song is "
+        "too loud and would distort, the program tells you after the export.",
+        "WAV, FLAC and OGG need nothing extra. M4A uses the encoder built into macOS. MP3 – and M4A on Windows and "
+        "Linux – needs the free program <b>LAME</b> or <b>FFmpeg</b>. It is found automatically; otherwise the program "
+        "shows how to install it, or you choose it with <b>Locate encoder...</b>.",
+    ])
     h2("MusicXML – to and from sheet music")
     p("<b>Export</b>: the key (from Root/Scale), time signature and tempo are included. Notes are rounded to the nearest "
       "1/16, notes across bar lines are tied, and chords are written as chords. Piano tracks with a wide range get a "
@@ -406,6 +430,7 @@ def content_en(m):
         ["⌘/Ctrl+Shift+Z or ⌘/Ctrl+Y", "Redo"],
         ["⌘/Ctrl+N / O / S", "New project / Open / Save"],
         ["⌘/Ctrl+Shift+S", "Save as"],
+        ["⌘/Ctrl+E", "Export song (WAV, MP3, OGG, FLAC, MIDI, M4A)"],
         ["⌘/Ctrl+A", "Select all notes"],
         ["⌘/Ctrl+C / X / V", "Copy / cut / paste notes"],
         ["Delete / Backspace", "Delete selected notes"],
@@ -437,6 +462,8 @@ def content_en(m):
     bullets([
         "<b>GeneralUser GS</b> – the built-in instruments – by S. Christian Collins. "
         "https://www.schristiancollins.com/generaluser. The license is included as GeneralUser-GS-LICENSE.txt.",
+        "<b>Valiant Violin v2 GM</b> – the built-in Violin (Jazz) – by Giovanni Valentino with Mike77154 "
+        "(WTFPL license). https://musical-artifacts.com/artifacts/1796. The license is included as Valiant-Violin-LICENSE.txt.",
         "<b>TinySoundFont</b> – SoundFont playback – by Bernhard Schelling (MIT license). "
         "https://github.com/schellingb/TinySoundFont",
         "<b>JUCE</b> – the framework MIDI Composer is built with. https://juce.com",

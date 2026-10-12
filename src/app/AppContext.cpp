@@ -159,14 +159,7 @@ void AppContext::syncEngine()
             used.insert(c.file);
             auto data = audioFiles.find(c.file, sr);
             if (!data) { audioFiles.request(c.file, sr); continue; } // decoded in the background, then synced again
-            audio::PlaybackSnapshot::Clip pc;
-            pc.offset = (juce::int64)std::llround(c.offset * data->sampleRate);
-            pc.length = std::min<juce::int64>((juce::int64)std::llround(c.length * data->sampleRate), data->audio.getNumSamples() - pc.offset);
-            if (pc.length <= 0) continue;
-            pc.data = std::move(data);
-            pc.start = c.start;
-            pc.gain = c.gain;
-            snap->clips[i].push_back(std::move(pc));
+            if (auto pc = audio::PlaybackSnapshot::makeClip(c, std::move(data))) snap->clips[i].push_back(std::move(*pc));
         }
     engine->setSnapshot(std::move(snap));
     audioFiles.retainOnly(used);
@@ -343,7 +336,8 @@ void AppContext::showAbout()
     text << "Soundeasel DAW " << JUCE_APPLICATION_VERSION_STRING << "\n"
          << "Instruments, step sequencers and audio tracks with a mixer.\n\n"
          << "Built-in instruments: GeneralUser GS by S. Christian Collins\n"
-         << "https://www.schristiancollins.com/generaluser\n\n"
+         << "https://www.schristiancollins.com/generaluser\n"
+         << "Violin: Valiant Violin v2 by Giovanni Valentino with Mike77154 (WTFPL)\n\n"
          << "SoundFont playback: TinySoundFont by Bernhard Schelling (MIT license)\n"
          << "https://github.com/schellingb/TinySoundFont\n\n"
          << "Made with JUCE.\n\n"
@@ -386,6 +380,66 @@ bool AppContext::exportMusicXml(const juce::File& f, juce::String& error)
     std::string e;
     if (!io::MusicXml::writeFile(project, f.getFullPathName().toStdString(), &e)) { error = e; return false; }
     return true;
+}
+
+std::unique_ptr<audio::RenderSession> AppContext::createRenderSession(double sampleRate, bool loopOnly, juce::String& error)
+{
+    auto s = std::make_unique<audio::RenderSession>();
+    s->sampleRate = sampleRate;
+    s->bpm = project.tempoBpm;
+    s->snapshot = std::make_shared<audio::PlaybackSnapshot>();
+    s->snapshot->seq = seq::SequenceSnapshot::build(project);
+    if (loopOnly) {
+        s->start = project.loopStart;
+        s->end = project.loopEnd;
+        if (s->end <= s->start) { error = "The loop region is empty."; return nullptr; }
+    } else {
+        s->end = s->snapshot->seq.lengthTicks;
+        if (s->end <= 0) { error = "There is nothing to export yet: the song has no notes or audio clips."; return nullptr; }
+    }
+
+    // Fresh instances get the settings the live ones have right now.
+    captureAllPluginStates();
+    constexpr int kBlock = 512;
+    s->engine = std::make_unique<audio::AudioEngine>(sampleRate, kBlock);
+    auto load = [&](const model::PluginReference& ref, const std::string& track) -> std::unique_ptr<plugins::InstrumentPlugin> {
+        juce::String err;
+        auto p = plugins->instantiate(ref, sampleRate, kBlock, err);
+        if (!p) {
+            s->warnings.add(juce::String(track) + ": " + juce::String(ref.name) + " could not be loaded"
+                            + (err.isNotEmpty() ? " (" + err + ")" : juce::String()));
+            return nullptr;
+        }
+        p->setNonRealtime(true); // takes effect with the next prepare()
+        return p;
+    };
+    for (auto& t : project.tracks()) {
+        std::unique_ptr<plugins::InstrumentPlugin> inst;
+        if (auto* mt = dynamic_cast<model::MidiTrack*>(t.get()); mt && !mt->plugin.empty()) {
+            const bool audible = std::any_of(s->snapshot->seq.tracks.begin(), s->snapshot->seq.tracks.end(),
+                                             [&](const seq::TrackSequence& ts) { return ts.trackId == mt->id() && ts.audible; });
+            if (audible && !mt->plugin.bypassed) inst = load(mt->plugin, mt->name); // muted tracks need no instrument
+        }
+        s->engine->setInstrument(t->id(), std::move(inst)); // prepares it (non-realtime)
+        std::vector<plugins::InstrumentPlugin*> fx;
+        for (auto& ref : t->inserts) {
+            auto p = load(ref, t->name);
+            if (p) p->prepare(sampleRate, kBlock); // setInserts() does not prepare
+            fx.push_back(p.get()); // nullptr entries are skipped, like in the live engine
+            if (p) s->effects.push_back(std::move(p));
+        }
+        if (!fx.empty()) s->engine->setInserts(t->id(), std::move(fx));
+    }
+
+    // Audio clips: decoded on the worker thread; files already in memory at this rate are reused.
+    const bool sameRate = std::abs(sampleRate - engine->sampleRate()) < 0.5;
+    for (size_t i = 0; i < s->snapshot->seq.tracks.size(); ++i)
+        for (auto& c : s->snapshot->seq.tracks[i].clips) {
+            s->clips.push_back({i, c});
+            if (sameRate && !s->cachedAudio.count(c.file))
+                if (auto d = audioFiles.find(c.file, sampleRate)) s->cachedAudio[c.file] = std::move(d);
+        }
+    return s;
 }
 
 // ---------------------------------------------------------------- tracks

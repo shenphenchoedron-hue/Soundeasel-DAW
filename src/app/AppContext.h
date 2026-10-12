@@ -2,6 +2,7 @@
 // Application controller: owns the model and all services and wires them
 // together. GUI components talk to this, never to each other's data.
 #include "audio/AudioEngine.h"
+#include "audio/AudioExport.h"
 #include "audio/AudioFileCache.h"
 #include "input/ChordInputProcessor.h"
 #include "midi/MidiDeviceManager.h"
@@ -39,6 +40,11 @@ public:
     bool importMidi(const juce::File&, juce::String& error);
     bool exportMidi(const juce::File&, juce::String& error);
     bool exportMusicXml(const juce::File&, juce::String& error);
+    // Song export: private copies of every instrument and effect (with their current
+    // settings) plus the song, ready to be rendered offline by audio::renderSong on a
+    // worker thread. Message thread; destroy the session on the message thread too.
+    // nullptr + error if there is nothing to export.
+    std::unique_ptr<audio::RenderSession> createRenderSession(double sampleRate, bool loopOnly, juce::String& error);
     bool importMusicXml(const juce::File&, juce::String& error); // .musicxml, .xml, .mxl
     void openSoundsFolder();   // reveals the user's .sf2 folder in Finder/Explorer
     void showAbout();          // version + third-party credits

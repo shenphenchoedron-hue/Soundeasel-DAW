@@ -1,6 +1,7 @@
 #pragma once
 // The built-in band instruments, played from the bundled GeneralUser GS
-// SoundFont. Deliberately short: the most common instruments for rock, pop and
+// SoundFont (and a few better single-instrument SoundFonts bundled next to it,
+// see `file`). Deliberately short: the most common instruments for rock, pop and
 // jazz. Users can add more sounds by dropping .sf2 files into the Sounds folder.
 //
 // Ids are stable (stored in projects) - never change or reuse them.
@@ -13,12 +14,16 @@ struct BuiltinInstrument {
     const char* group;     // "Rock", "Pop", "Jazz" (shown as sub-menus under Internal)
     const char* name;      // display name
     int bank, preset;      // SoundFont bank/preset (bank 128 = drum kits)
+    const char* file = nullptr; // bundled .sf2 file; nullptr = GeneralUser GS
 };
 
 inline constexpr const char* kBuiltinSoundFontFile = "GeneralUser-GS.sf2";
 inline constexpr const char* kBuiltinSoundFontLicense = "GeneralUser-GS-LICENSE.txt";
+// Valiant Violin v2 GM by Giovanni Valentino with Mike77154 (WTFPL): a much better violin than GeneralUser's.
+inline constexpr const char* kValiantViolinFile = "Valiant_Violin_V2.sf2";
+inline constexpr const char* kValiantViolinLicense = "Valiant-Violin-LICENSE.txt";
 
-inline constexpr std::array<BuiltinInstrument, 21> kBuiltinInstruments{{
+inline constexpr std::array<BuiltinInstrument, 22> kBuiltinInstruments{{
     // Rock
     {"rock-drums",        "Rock", "Rock Drums",              128, 16},
     {"rock-dist-guitar",  "Rock", "Distortion Guitar",         0, 30},
@@ -43,6 +48,7 @@ inline constexpr std::array<BuiltinInstrument, 21> kBuiltinInstruments{{
     {"jazz-tenor-sax",    "Jazz", "Tenor Sax",                 0, 66},
     {"jazz-trumpet",      "Jazz", "Trumpet",                   0, 56},
     {"jazz-vibraphone",   "Jazz", "Vibraphone",                0, 11},
+    {"jazz-violin",       "Jazz", "Violin",                    0, 40, kValiantViolinFile},
 }};
 
 } // namespace mc::plugins

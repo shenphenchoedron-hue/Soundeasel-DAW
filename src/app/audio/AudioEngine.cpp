@@ -7,18 +7,43 @@ namespace {
 constexpr int kClipFade = 64; // samples of fade at clip edges (avoids clicks)
 }
 
-AudioEngine::AudioEngine(juce::AudioDeviceManager& d) : devices(d)
+std::optional<PlaybackSnapshot::Clip> PlaybackSnapshot::makeClip(const model::AudioClip& c, std::shared_ptr<const AudioFileData> data)
+{
+    if (!data) return std::nullopt;
+    Clip pc;
+    pc.offset = (juce::int64)std::llround(c.offset * data->sampleRate);
+    pc.length = std::min<juce::int64>((juce::int64)std::llround(c.length * data->sampleRate), data->audio.getNumSamples() - pc.offset);
+    if (pc.length <= 0) return std::nullopt;
+    pc.data = std::move(data);
+    pc.start = c.start;
+    pc.gain = c.gain;
+    return pc;
+}
+
+AudioEngine::AudioEngine(juce::AudioDeviceManager& d) : devices(&d)
 {
     mixBuffer.setSize(2, 4096);
     busBuffer.setSize(2, 4096);
     silence.setSize(2, 4096);
     silence.clear();
-    devices.addAudioCallback(this);
+    devices->addAudioCallback(this);
+}
+
+AudioEngine::AudioEngine(double sr, int bs)
+{
+    sampleRate_ = sr > 0 ? sr : 44100.0;
+    blockSize_ = juce::jlimit(16, 4096, bs);
+    numOutputs_ = 2;
+    running_ = true;
+    mixBuffer.setSize(2, 4096);
+    busBuffer.setSize(2, 4096);
+    silence.setSize(2, 4096);
+    silence.clear();
 }
 
 AudioEngine::~AudioEngine()
 {
-    devices.removeAudioCallback(this);
+    if (devices) devices->removeAudioCallback(this);
     stopAudioRecording();
     const juce::ScopedLock l(slotLock);
     slots.clear();
@@ -232,6 +257,21 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* in, int n
     const int maxChunk = std::min(mixBuffer.getNumSamples(), std::max(1, blockSize_.load()));
     for (int start = 0; start < numSamples; start += maxChunk)
         renderChunk(in, numIn, out, numOut, start, std::min(maxChunk, numSamples - start));
+}
+
+void AudioEngine::renderOffline(float* const* out, int numOut, int numSamples)
+{
+    jassert(devices == nullptr); // a device engine is driven by its audio callback
+    const juce::ScopedNoDenormals noDenormals;
+    for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], numSamples);
+    {
+        const juce::SpinLock::ScopedLockType l(snapshotLock);
+        if (pendingSnapshot != audioSnapshot) { audioSnapshot = pendingSnapshot; ++snapshotGeneration; }
+    }
+    const juce::ScopedLock l(slotLock); // offline: wait instead of skipping a block
+    const int maxChunk = std::min(mixBuffer.getNumSamples(), std::max(1, blockSize_.load()));
+    for (int start = 0; start < numSamples; start += maxChunk)
+        renderChunk(nullptr, 0, out, numOut, start, std::min(maxChunk, numSamples - start));
 }
 
 void AudioEngine::renderChunk(const float* const* in, int numIn, float* const* out, int numOut, int start, int n)

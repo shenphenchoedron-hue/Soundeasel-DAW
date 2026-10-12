@@ -15,6 +15,7 @@
 #include <atomic>
 #include <array>
 #include <bitset>
+#include <optional>
 
 namespace mc::audio {
 
@@ -28,12 +29,23 @@ struct PlaybackSnapshot {
     };
     seq::SequenceSnapshot seq;
     std::vector<std::vector<Clip>> clips; // parallel to seq.tracks (empty for MIDI tracks)
+
+    // Engine clip for a project clip, from its audio decoded at the engine rate. Shared by
+    // playback and song export so both cut clips identically. nullopt: nothing to play.
+    static std::optional<Clip> makeClip(const model::AudioClip&, std::shared_ptr<const AudioFileData>);
 };
 
 class AudioEngine final : private juce::AudioIODeviceCallback {
 public:
     explicit AudioEngine(juce::AudioDeviceManager&);
+    // Offline engine (song export): not attached to a sound device. It is driven by
+    // renderOffline() from one thread, as fast as the computer can render.
+    AudioEngine(double sampleRate, int blockSize);
     ~AudioEngine() override;
+
+    // ---- offline rendering (offline engines only). Renders the next numSamples of the
+    // song exactly like the device callback would, into numOut (1 or 2) channels.
+    void renderOffline(float* const* out, int numOut, int numSamples);
 
     // ---- message thread
     void setSnapshot(std::shared_ptr<const PlaybackSnapshot>);
@@ -141,7 +153,7 @@ private:
     static void storePeak(std::atomic<float>& a, float v) { if (v > a.load(std::memory_order_relaxed)) a.store(v, std::memory_order_relaxed); }
     Slot* findSlot(model::TrackId) const;
 
-    juce::AudioDeviceManager& devices;
+    juce::AudioDeviceManager* devices = nullptr; // nullptr: offline engine
     mutable juce::CriticalSection slotLock;
     std::vector<std::unique_ptr<Slot>> slots;
 

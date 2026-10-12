@@ -41,6 +41,13 @@ public:
     juce::File lastDirectory() const;
     void setLastDirectory(const juce::File&);
 
+    // Song export: the last choices in the export dialog ("export.<key>") and the
+    // external MP3/AAC encoder the user picked (empty: search automatically).
+    juce::String exportSetting(const juce::String& key, const juce::String& fallback) const;
+    void setExportSetting(const juce::String& key, const juce::String& value);
+    juce::File encoderPath() const;
+    void setEncoderPath(const juce::File&);
+
 private:
     mutable juce::ApplicationProperties props;
     juce::PropertiesFile& file() const { return *props.getUserSettings(); }

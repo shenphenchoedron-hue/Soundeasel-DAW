@@ -16,12 +16,14 @@ inline constexpr const char* kUserPrefix = "sf2:";
 
 // Location of the bundled GeneralUser GS file, or a non-existent File if not installed.
 juce::File builtinFile();
+// Location of any file bundled with the app (next to GeneralUser GS), or a non-existent File.
+juce::File bundledFile(const juce::String& name);
 
 // The user's folder for extra .sf2 files (created on demand).
 juce::File userSoundsFolder(const juce::File& dataDir);
 
-// Built-in instruments (format "Internal", category "Rock"/"Pop"/"Jazz").
-// Empty if the bundled SoundFont is missing.
+// Built-in instruments (format "Internal", category "Rock"/"Pop"/"Jazz") whose
+// bundled SoundFont file is installed.
 std::vector<PluginInfo> builtinInstruments();
 
 // All presets of all .sf2 files in `folder` (format "SoundFont", category = file name).

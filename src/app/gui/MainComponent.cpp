@@ -1,4 +1,5 @@
 #include "gui/MainComponent.h"
+#include "gui/ExportDialog.h"
 #include "gui/PluginBrowser.h"
 #include "gui/SettingsComponent.h"
 #include "gui/Theme.h"
@@ -7,7 +8,7 @@ namespace mc::gui {
 
 namespace {
 enum MenuId {
-    New = 1, Open, Save, SaveAs, ImportMidi, ImportMusicXml, ExportMidi, ExportMusicXml, Quit, ImportAudio,
+    New = 1, Open, Save, SaveAs, ImportMidi, ImportMusicXml, ExportMidi, ExportMusicXml, Quit, ImportAudio, ExportSong,
     Undo = 100, Redo, Cut, Copy, Paste, Delete, SelectAll, AddTrack, DeleteTrack, AddStepSeq, AddAudioTrack,
     Settings = 200, Plugins, Rescan, SoundsFolder, Manual, About, TestSound,
     ShowMixer = 300, ShowPianoRoll
@@ -86,6 +87,8 @@ MainComponent::MainComponent(AppContext& a)
 
 MainComponent::~MainComponent()
 {
+    // Destroyed before the AppContext on every shutdown path: no export may outlive the plugin hosts.
+    ExportDialog::cancelRunningExports();
 #if JUCE_MAC
     juce::MenuBarModel::setMacMainMenu(nullptr);
 #endif
@@ -236,6 +239,7 @@ bool MainComponent::keyPressed(const juce::KeyPress& k)
     if (cmd && k.getKeyCode() == 'Y') { app.undo.redo(); return true; }
     if (cmd && k.getKeyCode() == 'S') { shift ? saveDialog() : save(); return true; }
     if (cmd && k.getKeyCode() == 'O') { openDialog(); return true; }
+    if (cmd && k.getKeyCode() == 'E') { ExportDialog::show(app); return true; }
     if (cmd && k.getKeyCode() == 'N') { menuItemSelected(New, 0); return true; }
     if (!cmd && k.getKeyCode() == 'R') { app.toggleRecord(); return true; }
     if (!cmd && k.getKeyCode() == 'K') { app.setMetronome(!app.metronome()); return true; }
@@ -258,6 +262,10 @@ juce::PopupMenu MainComponent::getMenuForIndex(int idx, const juce::String&)
         m.addItem(ImportAudio, "Import audio file (WAV, AIFF, FLAC, Ogg, MP3)...");
         m.addItem(ImportMidi, "Import MIDI file...");
         m.addItem(ImportMusicXml, "Import MusicXML (MuseScore)...");
+        juce::PopupMenu::Item exportSong("Export song (WAV, MP3, OGG, FLAC, MIDI, M4A)...");
+        exportSong.itemID = ExportSong;
+        exportSong.shortcutKeyDescription = juce::KeyPress('e', juce::ModifierKeys::commandModifier, 0).getTextDescriptionWithIcons();
+        m.addItem(exportSong);
         m.addItem(ExportMidi, "Export MIDI file...");
         m.addItem(ExportMusicXml, "Export MusicXML (MuseScore)...");
         m.addSeparator();
@@ -301,6 +309,7 @@ void MainComponent::menuItemSelected(int id, int)
         case SaveAs: saveDialog(); break;
         case ImportMidi: importDialog(); break;
         case ImportMusicXml: importMusicXmlDialog(); break;
+        case ExportSong: ExportDialog::show(app); break;
         case ExportMidi: exportDialog(); break;
         case ExportMusicXml: exportMusicXmlDialog(); break;
         case Quit: juce::JUCEApplication::getInstance()->systemRequestedQuit(); break;
@@ -349,7 +358,20 @@ void MainComponent::confirmDiscard(std::function<void()> proceed)
         }));
 }
 
-void MainComponent::requestQuit(std::function<void()> quit) { confirmDiscard(std::move(quit)); }
+void MainComponent::requestQuit(std::function<void()> quit)
+{
+    if (ExportDialog::isExportRunning()) {
+        juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, "Export in progress",
+            "A song is being exported. Stop the export and quit?", "Stop and quit", "Keep exporting", this,
+            juce::ModalCallbackFunction::create([this, quit](int r) {
+                if (r != 1) return;
+                ExportDialog::cancelRunningExports();
+                confirmDiscard(quit);
+            }));
+        return;
+    }
+    confirmDiscard(std::move(quit));
+}
 
 void MainComponent::openDialog()
 {

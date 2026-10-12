@@ -154,6 +154,7 @@ public:
         scratch.setSize(std::max({2, inst->getTotalNumInputChannels(), inst->getTotalNumOutputChannels()}), bs);
     }
     void release() override { inst->releaseResources(); }
+    void setNonRealtime(bool b) override { inst->setNonRealtime(b); }
     bool hasEditor() const override { return hasEditor_; }
     juce::Component* createEditor() override
     {

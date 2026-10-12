@@ -19,6 +19,8 @@ ART="$(dirname "$BIN")"
 install -Dm644 "$ART/GeneralUser-GS.sf2" "$PKG/usr/share/soundeasel-daw/GeneralUser-GS.sf2"
 install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/soundeasel-daw/GeneralUser-GS-LICENSE.txt"
 install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/doc/soundeasel-daw/GeneralUser-GS-LICENSE.txt"
+install -Dm644 "$ART/Valiant_Violin_V2.sf2" "$PKG/usr/share/soundeasel-daw/Valiant_Violin_V2.sf2"
+install -Dm644 "$ART/Valiant-Violin-LICENSE.txt" "$PKG/usr/share/doc/soundeasel-daw/Valiant-Violin-LICENSE.txt"
 install -Dm644 "$ART/MIDI-Composer-Manual.pdf" "$PKG/usr/share/doc/soundeasel-daw/MIDI-Composer-Manual.pdf"
 
 mkdir -p "$PKG/usr/share/applications"

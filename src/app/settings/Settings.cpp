@@ -76,6 +76,29 @@ juce::File Settings::lastDirectory() const
 
 void Settings::setLastDirectory(const juce::File& f) { file().setValue("lastDir", f.getFullPathName()); }
 
+juce::String Settings::exportSetting(const juce::String& key, const juce::String& fallback) const
+{
+    return file().getValue("export." + key, fallback);
+}
+
+void Settings::setExportSetting(const juce::String& key, const juce::String& value)
+{
+    file().setValue("export." + key, value);
+    file().saveIfNeeded();
+}
+
+juce::File Settings::encoderPath() const
+{
+    const auto p = file().getValue("encoderPath");
+    return juce::File::isAbsolutePath(p) ? juce::File(p) : juce::File();
+}
+
+void Settings::setEncoderPath(const juce::File& f)
+{
+    file().setValue("encoderPath", f.getFullPathName());
+    file().saveIfNeeded();
+}
+
 std::vector<std::uint32_t> Settings::colourSwatches() const
 {
     std::vector<std::uint32_t> out;
