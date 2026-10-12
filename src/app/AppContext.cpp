@@ -33,11 +33,30 @@ model::PluginReference defaultInstrument()
 
 AppContext::AppContext()
 {
+    // The user's saved device comes first. Two inputs for audio tracks if the device can open
+    // them; otherwise the same device with outputs only, so instruments always make sound.
+    // Only if the saved device cannot be opened at all, the system default is used - and that
+    // fallback is never written back over the user's choice.
     auto state = settings.audioDeviceState();
-    const auto err = deviceManager.initialise(0, 2, state.get(), true);
-    if (err.isNotEmpty()) DBG("Audio init: " << err);
+    auto opened = [this] { return deviceManager.getCurrentAudioDevice() != nullptr; };
+    auto err = deviceManager.initialise(2, 2, state.get(), false);
+    if (err.isNotEmpty() || !opened()) {
+        DBG("Audio init: " << err);
+        err = deviceManager.initialise(0, 2, state.get(), false);
+    }
+    if (err.isNotEmpty() || !opened()) {
+        DBG("Audio init (output only): " << err);
+        deviceFellBack = state != nullptr; // the saved device is not available right now
+        err = deviceManager.initialise(2, 2, nullptr, true);
+        if (err.isNotEmpty() || !opened()) err = deviceManager.initialise(0, 2, nullptr, true);
+        if (err.isNotEmpty()) { DBG("Audio init (default device): " << err); }
+    }
 
     engine = std::make_unique<audio::AudioEngine>(deviceManager);
+    audioFiles.onLoaded = [this] { syncEngine(); sendChangeMessage(); };
+    ensureStereoOutput();
+    deviceManager.addChangeListener(this);
+    diskThread.startThread();
     plugins = std::make_unique<plugins::PluginManager>(settings.dataDirectory());
     midiDevices = std::make_unique<midi::MidiDeviceManager>(deviceManager, [this](const juce::MidiMessage& m) { handleMidi(m); });
     midiDevices->selectInput(settings.midiInputIdentifier());
@@ -57,10 +76,16 @@ AppContext::AppContext()
 AppContext::~AppContext()
 {
     project.removeListener(listenerHandle);
+    deviceManager.removeChangeListener(this);
+    engine->stopAudioRecording();
+    diskThread.stopThread(2000);
     editorWindows.clear();
+    insertEditors.clear();
     midiDevices.reset();
-    if (auto xml = deviceManager.createStateXml()) settings.setAudioDeviceState(xml.get());
+    if (!deviceFellBack)
+        if (auto xml = deviceManager.createStateXml()) settings.setAudioDeviceState(xml.get());
     engine.reset();
+    inserts.clear(); // after the engine: nothing processes them any more
 }
 
 // ---------------------------------------------------------------- model sync
@@ -68,7 +93,7 @@ void AppContext::onModelChanged()
 {
     // Step sequencer lines are edited in the step sequencer panel, not the piano roll:
     // keep a piano roll track active (e.g. after adding a line, or undo/redo).
-    if (auto* a = project.midiTrack(project.activeTrack); a && a->isStepLine()) {
+    if (auto* a = project.midiTrack(project.activeTrack); project.activeTrack != 0 && (!a || a->isStepLine())) {
         model::TrackId pick = 0;
         if (auto* l = project.midiTrack(lastPianoTrack); l && !l->isStepLine()) pick = lastPianoTrack;
         else for (auto& t : project.tracks())
@@ -85,15 +110,18 @@ void AppContext::syncEngine()
 {
     // remove engine slots for deleted tracks
     for (auto id : engine->trackIds())
-        if (!project.midiTrack(id)) {
+        if (!project.track(id)) {
             closeEditor(id);
+            prepareToRemove(id);
             engine->removeTrack(id);
+            clearInserts(id);
             loadedRefs.erase(id);
             missing.erase(id);
             errors.erase(id);
         }
 
     for (auto& t : project.tracks()) {
+        if (t->kind() == model::TrackKind::Audio && !engine->hasTrack(t->id())) engine->setInstrument(t->id(), nullptr);
         auto* mt = dynamic_cast<model::MidiTrack*>(t.get());
         if (!mt) continue;
         auto it = loadedRefs.find(mt->id());
@@ -108,18 +136,48 @@ void AppContext::syncEngine()
                 inst = plugins->instantiate(mt->plugin, engine->sampleRate(), engine->blockSize(), err);
                 if (!inst) { missing.insert(mt->id()); errors[mt->id()] = err; }
             }
+            if (auto* old = engine->instrument(mt->id())) old->prepareToRemove();
             engine->setInstrument(mt->id(), std::move(inst)); // old instance destroyed here, on the message thread
             loadedRefs[mt->id()] = mt->plugin;
         }
         engine->setBypassed(mt->id(), mt->plugin.bypassed);
     }
+    for (auto& t : project.tracks()) syncInserts(*t);
 
     activeTrackAtomic = project.activeTrack;
     if (auto* a = activeMidiTrack()) activeChannelAtomic = a->channel;
     engine->setTempo(project.tempoBpm);
     engine->setMeter(seq::ticksPerBeat(project.timeSig), seq::ticksPerBar(project.timeSig));
     engine->setLoop(project.loopEnabled, project.loopStart, project.loopEnd);
-    engine->setSnapshot(std::make_shared<seq::SequenceSnapshot>(seq::SequenceSnapshot::build(project)));
+    auto snap = std::make_shared<audio::PlaybackSnapshot>();
+    snap->seq = seq::SequenceSnapshot::build(project);
+    const double sr = engine->sampleRate();
+    snap->clips.resize(snap->seq.tracks.size());
+    std::set<std::string> used;
+    for (size_t i = 0; i < snap->seq.tracks.size(); ++i)
+        for (auto& c : snap->seq.tracks[i].clips) {
+            used.insert(c.file);
+            auto data = audioFiles.find(c.file, sr);
+            if (!data) { audioFiles.request(c.file, sr); continue; } // decoded in the background, then synced again
+            audio::PlaybackSnapshot::Clip pc;
+            pc.offset = (juce::int64)std::llround(c.offset * data->sampleRate);
+            pc.length = std::min<juce::int64>((juce::int64)std::llround(c.length * data->sampleRate), data->audio.getNumSamples() - pc.offset);
+            if (pc.length <= 0) continue;
+            pc.data = std::move(data);
+            pc.start = c.start;
+            pc.gain = c.gain;
+            snap->clips[i].push_back(std::move(pc));
+        }
+    engine->setSnapshot(std::move(snap));
+    audioFiles.retainOnly(used);
+}
+
+void AppContext::changeListenerCallback(juce::ChangeBroadcaster*)
+{
+    // Device or sample rate changed: audio files are resampled for the new rate.
+    ensureStereoOutput();
+    syncEngine();
+    sendChangeMessage();
 }
 
 juce::String AppContext::pluginError(model::TrackId id) const
@@ -130,6 +188,7 @@ juce::String AppContext::pluginError(model::TrackId id) const
 
 void AppContext::captureAllPluginStates()
 {
+    for (auto& t : project.tracks()) captureInsertStates(*t);
     for (auto& t : project.tracks())
         if (auto* mt = dynamic_cast<model::MidiTrack*>(t.get()))
             if (!isPluginMissing(mt->id()))
@@ -168,7 +227,7 @@ bool AppContext::openProject(const juce::File& f, juce::String& error)
     // Mapping belongs to the user's keyboard: settings win over the project copy.
     p.controllerMapping = chordInput.mapping();
     loadedRefs.clear(); // force re-instantiation with stored state
-    for (auto id : engine->trackIds()) { closeEditor(id); engine->removeTrack(id); }
+    for (auto id : engine->trackIds()) { closeEditor(id); prepareToRemove(id); engine->removeTrack(id); clearInserts(id); }
     project = p;
     undo.clear();
     currentFile = f;
@@ -184,6 +243,7 @@ bool AppContext::openProject(const juce::File& f, juce::String& error)
 bool AppContext::saveProject(const juce::File& f, juce::String& error)
 {
     captureAllPluginStates();
+    collectAudioFiles(f);
     project.playhead = (model::Tick)engine->position();
     std::string e;
     if (!io::ProjectSerializer::saveFile(project, f.getFullPathName().toStdString(), &e)) { error = e; return false; }
@@ -272,25 +332,26 @@ void AppContext::openManual()
     const juce::String name = "MIDI-Composer-Manual.pdf";
     for (auto& f : {app.getChildFile("Contents/Resources").getChildFile(name),
                     exe.getParentDirectory().getChildFile(name),
-                    juce::File("/usr/share/doc/midi-composer").getChildFile(name)})
+                    juce::File("/usr/share/doc/soundeasel-daw").getChildFile(name)})
         if (f.existsAsFile() && f.startAsProcess()) return;
-    juce::URL("https://github.com/shenphenchoedron-hue/easymidieditor/releases/latest").launchInDefaultBrowser();
+    juce::URL("https://github.com/shenphenchoedron-hue/Soundeasel-DAW/releases/latest").launchInDefaultBrowser();
 }
 
 void AppContext::showAbout()
 {
     juce::String text;
-    text << "MIDI Composer " << JUCE_APPLICATION_VERSION_STRING << "\n\n"
+    text << "Soundeasel DAW " << JUCE_APPLICATION_VERSION_STRING << "\n"
+         << "Instruments, step sequencers and audio tracks with a mixer.\n\n"
          << "Built-in instruments: GeneralUser GS by S. Christian Collins\n"
          << "https://www.schristiancollins.com/generaluser\n\n"
          << "SoundFont playback: TinySoundFont by Bernhard Schelling (MIT license)\n"
          << "https://github.com/schellingb/TinySoundFont\n\n"
          << "Made with JUCE.\n\n"
          << "Manual: Options > User manual (English). A Danish manual is available on the\n"
-         << "Releases page: https://github.com/shenphenchoedron-hue/easymidieditor/releases";
+         << "Releases page: https://github.com/shenphenchoedron-hue/Soundeasel-DAW/releases";
     if (auto f = plugins::soundfont::builtinFile(); f.existsAsFile())
         text << "\n\nLicense of the built-in sounds:\n" << f.getSiblingFile(plugins::kBuiltinSoundFontLicense).getFullPathName();
-    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "About MIDI Composer", text);
+    juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "About Soundeasel DAW", text);
 }
 
 void AppContext::addImportedTracks(const model::Project& imported)
@@ -453,7 +514,7 @@ void AppContext::deleteTrack(model::TrackId id)
 void AppContext::selectTrack(model::TrackId id)
 {
     if (project.activeTrack == id) return;
-    if (auto* t = project.midiTrack(id); t && t->isStepLine()) return; // not editable in the piano roll
+    if (auto* t = project.midiTrack(id); !t || t->isStepLine()) return; // only piano roll tracks are edited in the piano roll
     for (auto& e : chordInput.allNotesOff()) engine->pushLive(activeTrackAtomic, juce::MidiMessage::noteOff(activeChannelAtomic + 1, e.pitch));
     project.activeTrack = id;
     suppressDirty = true;
@@ -469,6 +530,353 @@ void AppContext::setTrackPlugin(model::TrackId id, const plugins::PluginInfo* in
     auto after = before;
     after.plugin = info ? plugins::PluginManager::referenceFor(*info) : model::PluginReference{};
     undo.perform(std::make_unique<model::SetTrackPropertiesCommand>(id, before, after));
+}
+
+void AppContext::changeTrack(model::TrackId id, const std::function<void(model::TrackProperties&)>& edit)
+{
+    auto* t = project.track(id);
+    if (!t) return;
+    auto before = model::TrackProperties::from(*t);
+    auto after = before;
+    edit(after);
+    undo.perform(std::make_unique<model::SetTrackPropertiesCommand>(id, before, after));
+}
+
+void AppContext::beginTrackEdit(model::TrackId id)
+{
+    if (auto* t = project.track(id); t && !trackEdits.count(id)) trackEdits.emplace(id, model::TrackProperties::from(*t));
+}
+
+void AppContext::liveTrackVolume(model::TrackId id, float gain)
+{
+    if (auto* t = project.track(id)) { t->volume = std::clamp(gain, 0.0f, 2.0f); modelChangedWithoutUndo(); }
+}
+
+void AppContext::liveTrackPan(model::TrackId id, float pan)
+{
+    if (auto* t = project.track(id)) { t->pan = std::clamp(pan, -1.0f, 1.0f); modelChangedWithoutUndo(); }
+}
+
+void AppContext::endTrackEdit(model::TrackId id)
+{
+    auto it = trackEdits.find(id);
+    if (it == trackEdits.end()) return;
+    const auto before = it->second;
+    trackEdits.erase(it);
+    auto* t = project.track(id);
+    if (!t || (t->volume == before.volume && t->pan == before.pan)) return; // nothing changed: no undo step
+    auto after = before;
+    after.volume = t->volume;
+    after.pan = t->pan;
+    t->volume = before.volume;
+    t->pan = before.pan;
+    undo.perform(std::make_unique<model::SetTrackPropertiesCommand>(id, before, after));
+}
+
+// ---------------------------------------------------------------- audio tracks
+std::vector<model::AudioTrack*> AppContext::audioTracks() const
+{
+    std::vector<model::AudioTrack*> v;
+    for (auto& t : project.tracks())
+        if (auto* a = dynamic_cast<model::AudioTrack*>(t.get())) v.push_back(a);
+    return v;
+}
+
+model::TrackId AppContext::addAudioTrack(const std::string& name)
+{
+    auto cmd = std::make_unique<model::AddTrackCommand>(name, model::TrackKind::Audio);
+    auto* raw = cmd.get();
+    undo.perform(std::move(cmd));
+    if (auto* a = project.audioTrack(raw->trackId())) {
+        // A fresh track listens to the first input (if the device has one), so pressing
+        // record just works. The colour sets audio tracks apart from instrument tracks.
+        a->input = engine->numInputChannels() > 0 ? 0 : -1;
+        a->colour = 0xff5aae84u;
+        a->volume = 0.8f;
+        project.notifyChanged();
+    }
+    return raw->trackId();
+}
+
+bool AppContext::importAudio(const juce::File& f, model::TrackId track, model::Tick at, juce::String& error)
+{
+    if (!audioFiles.canRead(f)) { error = "Cannot read \"" + f.getFileName() + "\" (supported: WAV, AIFF, FLAC, Ogg Vorbis, MP3)."; return false; }
+    const double len = audioFiles.fileLength(f);
+    if (len <= 0) { error = "\"" + f.getFileName() + "\" contains no audio."; return false; }
+    if (!project.audioTrack(track)) track = addAudioTrack(f.getFileNameWithoutExtension().toStdString());
+    auto* a = project.audioTrack(track);
+    if (!a) return false;
+    auto clips = a->clips();
+    model::AudioClip c;
+    c.file = f.getFullPathName().toStdString();
+    c.name = f.getFileNameWithoutExtension().toStdString();
+    c.start = std::max<model::Tick>(0, at);
+    c.length = len;
+    clips.push_back(c);
+    setAudioClips(track, std::move(clips), "Import audio");
+    return true;
+}
+
+void AppContext::setAudioClips(model::TrackId id, std::vector<model::AudioClip> after, const std::string& name)
+{
+    auto* a = project.audioTrack(id);
+    if (!a) return;
+    auto before = a->clips();
+    if (before == after) return;
+    undo.perform(std::make_unique<model::SetAudioClipsCommand>(id, std::move(before), std::move(after), name));
+}
+
+void AppContext::setTrackArmed(model::TrackId id, bool on)
+{
+    if (auto* a = project.audioTrack(id); a && a->armed != on) {
+        a->armed = on;
+        if (on && a->input < 0 && engine->numInputChannels() > 0) a->input = 0;
+        project.notifyChanged();
+    }
+}
+
+void AppContext::setTrackMonitor(model::TrackId id, bool on)
+{
+    if (auto* a = project.audioTrack(id); a && a->monitor != on) { a->monitor = on; project.notifyChanged(); }
+}
+
+void AppContext::setVolumeAutomation(model::TrackId id, std::vector<model::AutomationPoint> after)
+{
+    auto* a = project.audioTrack(id);
+    if (!a) return;
+    model::normalizeAutomation(after);
+    if (after == a->volumeAutomation) return;
+    undo.perform(std::make_unique<model::SetVolumeAutomationCommand>(id, a->volumeAutomation, std::move(after)));
+}
+
+void AppContext::setShowVolumeLine(model::TrackId id, bool on)
+{
+    if (auto* a = project.audioTrack(id); a && a->showVolumeLine != on) { a->showVolumeLine = on; project.notifyChanged(); }
+}
+
+void AppContext::setTrackInput(model::TrackId id, int input, bool stereo)
+{
+    changeTrack(id, [&](model::TrackProperties& p) { p.input = input; p.stereoInput = stereo; });
+}
+
+juce::StringArray AppContext::inputNames() const
+{
+    juce::StringArray names;
+    if (auto* d = deviceManager.getCurrentAudioDevice()) {
+        const auto all = d->getInputChannelNames();
+        const auto active = d->getActiveInputChannels();
+        for (int i = 0; i < all.size(); ++i)
+            if (active[i]) names.add(all[i]);
+    }
+    return names;
+}
+
+std::shared_ptr<const audio::AudioFileData> AppContext::audioFile(const std::string& path)
+{
+    // Never blocks: files are decoded in the background (the lanes show "Loading...").
+    auto d = audioFiles.find(path, engine->sampleRate());
+    if (!d) audioFiles.request(path, engine->sampleRate());
+    return d;
+}
+
+juce::File AppContext::audioFolder() const
+{
+    if (currentFile != juce::File()) return currentFile.getSiblingFile(currentFile.getFileNameWithoutExtension() + " Audio");
+    return settings.dataDirectory().getChildFile("Recordings");
+}
+
+bool AppContext::startAudioRecording()
+{
+    const int inputs = engine->numInputChannels();
+    if (inputs == 0) {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "No audio input",
+            "Your sound device has no active input, so audio cannot be recorded.\n\n"
+            "Open Options > Settings and choose a device (or input channels) for audio input.");
+        return false;
+    }
+    const auto folder = audioFolder();
+    if (!folder.createDirectory()) {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::WarningIcon, "Cannot record", "Cannot create the folder\n" + folder.getFullPathName());
+        return false;
+    }
+    takes.clear();
+    std::vector<std::pair<model::TrackId, std::unique_ptr<audio::AudioEngine::Writer>>> writers;
+    juce::WavAudioFormat wav;
+    const double sr = engine->sampleRate();
+    for (auto* a : audioTracks()) {
+        if (!a->armed) continue;
+        if (a->input < 0 || a->input >= inputs) a->input = 0;
+        const int channels = a->stereoInput && a->input + 1 < inputs ? 2 : 1;
+        const auto file = folder.getNonexistentChildFile(juce::File::createLegalFileName(a->name) + " take", ".wav", false);
+        std::unique_ptr<juce::OutputStream> os(file.createOutputStream());
+        if (!os) continue;
+#if JUCE_VERSION >= 0x80009
+        auto w = wav.createWriterFor(os, juce::AudioFormatWriterOptions{}.withSampleRate(sr).withNumChannels(channels).withBitsPerSample(24));
+        if (!w) continue;
+        auto* writer = w.release();
+#else
+        auto* writer = wav.createWriterFor(os.get(), sr, (unsigned)channels, 24, {}, 0);
+        if (!writer) continue;
+        os.release(); // owned by the writer
+#endif
+        writers.push_back({a->id(), std::make_unique<audio::AudioEngine::Writer>(writer, diskThread, (int)sr * 4)});
+        takes.push_back({a->id(), file});
+    }
+    if (writers.empty()) return false;
+    engine->startAudioRecording(std::move(writers));
+    return true;
+}
+
+void AppContext::finishAudioRecording(std::vector<std::unique_ptr<model::Command>>& cmds)
+{
+    const double startPos = engine->stopAudioRecording(); // files are complete after this
+    const double sr = engine->sampleRate();
+    const double latency = sr > 0 ? engine->roundTripLatency() / sr : 0.0;
+    for (auto& take : takes) {
+        auto* a = project.audioTrack(take.track);
+        const double len = audioFiles.fileLength(take.file);
+        if (!a || startPos < 0 || len <= latency + 0.01) { take.file.deleteFile(); continue; }
+        auto before = a->clips();
+        auto after = before;
+        model::AudioClip c;
+        c.file = take.file.getFullPathName().toStdString();
+        c.name = take.file.getFileNameWithoutExtension().toStdString();
+        c.start = (model::Tick)std::llround(startPos);
+        // What was recorded arrives late by the device latency: skip that part.
+        c.offset = latency;
+        c.length = len - latency;
+        after.push_back(c);
+        audioFiles.forget(c.file);
+        cmds.push_back(std::make_unique<model::SetAudioClipsCommand>(take.track, std::move(before), std::move(after), "Record audio"));
+    }
+    takes.clear();
+}
+
+// Copies every audio file the project uses into "<project> Audio" next to the
+// project file, so the project folder can be moved or backed up as a whole.
+void AppContext::collectAudioFiles(const juce::File& projectFile)
+{
+    const auto folder = projectFile.getSiblingFile(projectFile.getFileNameWithoutExtension() + " Audio");
+    std::map<std::string, std::string> moved;
+    bool changed = false;
+    for (auto* a : audioTracks()) {
+        auto clips = a->clips();
+        bool trackChanged = false;
+        for (auto& c : clips) {
+            const juce::File src(juce::String::fromUTF8(c.file.c_str()));
+            if (src.isAChildOf(folder) || !src.existsAsFile()) continue;
+            // Only real, readable audio files are copied: a project file could name any file on the disk.
+            if (!audioFiles.canRead(src) || audioFiles.fileLength(src) <= 0.0) continue;
+            auto it = moved.find(c.file);
+            if (it == moved.end()) {
+                folder.createDirectory();
+                auto dst = folder.getChildFile(src.getFileName());
+                // An existing file is reused only if it is the very same audio (same name and size is not enough).
+                if (dst.existsAsFile() && !dst.hasIdenticalContentTo(src))
+                    dst = folder.getNonexistentChildFile(src.getFileNameWithoutExtension(), src.getFileExtension(), false);
+                if (!dst.existsAsFile() && !src.copyFileTo(dst)) continue;
+                it = moved.emplace(c.file, dst.getFullPathName().toStdString()).first;
+            }
+            c.file = it->second;
+            trackChanged = true;
+        }
+        if (trackChanged) { a->setClips(std::move(clips)); changed = true; }
+    }
+    if (changed) { suppressDirty = true; project.notifyChanged(); suppressDirty = false; }
+}
+
+// ---------------------------------------------------------------- Mains
+void AppContext::setMaster(const model::MasterBus& before, const model::MasterBus& after)
+{
+    if (before == after) return;
+    project.master = before;
+    undo.perform(std::make_unique<model::SetMasterCommand>(before, after));
+}
+
+void AppContext::setMasterLive(const model::MasterBus& m)
+{
+    project.master = m;
+    project.notifyChanged();
+}
+
+// ---------------------------------------------------------------- meters
+void AppContext::pollLevels()
+{
+    lastLevels.clear();
+    for (auto& t : project.tracks()) lastLevels[t->id()] = engine->takeTrackLevels(t->id());
+    lastLevels[0] = engine->takeMasterLevels();
+}
+
+audio::AudioEngine::Levels AppContext::levels(model::TrackId id) const
+{
+    auto it = lastLevels.find(id);
+    return it == lastLevels.end() ? audio::AudioEngine::Levels{} : it->second;
+}
+
+// ---------------------------------------------------------------- device status
+bool AppContext::audioOutputOk() const
+{
+    return deviceManager.getCurrentAudioDevice() != nullptr && engine->isDeviceRunning() && engine->numOutputChannels() > 0;
+}
+
+// Opens a stereo pair for Mains if the device has two or more outputs but fewer are active
+// (e.g. only one output channel ticked in the settings).
+void AppContext::ensureStereoOutput()
+{
+    auto* d = deviceManager.getCurrentAudioDevice();
+    if (!d || changingDevice) return;
+    const int total = d->getOutputChannelNames().size();
+    const auto active = d->getActiveOutputChannels();
+    if (total < 2 || active.countNumberOfSetBits() >= 2) return;
+    const int first = std::max(0, active.findNextSetBit(0));
+    setMainsOutputPair(std::min(first / 2, total / 2 - 1), false);
+}
+
+juce::StringArray AppContext::mainsOutputPairs() const
+{
+    juce::StringArray pairs;
+    if (auto* d = deviceManager.getCurrentAudioDevice()) {
+        const int outs = d->getOutputChannelNames().size();
+        for (int i = 0; i + 1 < outs; i += 2) {
+            pairs.add("Out " + juce::String(i + 1) + "+" + juce::String(i + 2));
+        }
+    }
+    return pairs;
+}
+
+int AppContext::mainsOutputPair() const
+{
+    auto* d = deviceManager.getCurrentAudioDevice();
+    if (!d) return -1;
+    const int first = d->getActiveOutputChannels().findNextSetBit(0);
+    return first < 0 ? -1 : first / 2;
+}
+
+void AppContext::setMainsOutputPair(int pair, bool userChoice)
+{
+    if (userChoice) deviceFellBack = false;
+    auto setup = deviceManager.getAudioDeviceSetup();
+    setup.useDefaultOutputChannels = false;
+    setup.outputChannels.clear();
+    setup.outputChannels.setRange(pair * 2, 2, true);
+    changingDevice = true;
+    const auto err = deviceManager.setAudioDeviceSetup(setup, true);
+    changingDevice = false;
+    if (err.isNotEmpty()) { DBG("Mains output: " << err); }
+    if (!deviceFellBack) // never replace the user's saved device with a fallback setup
+        if (auto xml = deviceManager.createStateXml()) settings.setAudioDeviceState(xml.get());
+    sendChangeMessage();
+}
+
+juce::String AppContext::audioStatusText() const
+{
+    auto* d = deviceManager.getCurrentAudioDevice();
+    if (!audioOutputOk() || !d) return "No sound - click to choose your sound device";
+    juce::String s = d->getName() + "  " + juce::String(d->getCurrentSampleRate() / 1000.0, 1) + " kHz  |  "
+                   + (isStereoOutput() ? "stereo out" : "MONO out");
+    const int in = engine->numInputChannels();
+    s << "  |  " << (in > 0 ? juce::String(in) + (in == 1 ? " input" : " inputs") : juce::String("no inputs"));
+    return s;
 }
 
 void AppContext::setTrackBypass(model::TrackId id, bool b)
@@ -495,6 +903,137 @@ void AppContext::openPluginEditor(model::TrackId id)
     }
 }
 
+// ---------------------------------------------------------------- effect plugins
+// Keeps the live plugin instances of a track's insert chain in step with the model.
+// Instances are matched by their slot id (not just the plugin type, so two copies of
+// the same plugin keep their own settings) and reused when plugins are moved.
+void AppContext::syncInserts(model::Track& t)
+{
+    model::assignInsertIds(t.inserts);
+    auto& cur = inserts[t.id()];
+    const auto& want = t.inserts;
+    auto matches = [](const model::PluginReference& a, const model::PluginReference& b) { return a.uid == b.uid && a.sameType(b); };
+    bool same = cur.size() == want.size();
+    for (size_t i = 0; same && i < want.size(); ++i) same = matches(cur[i].ref, want[i]);
+    if (same) {
+        for (size_t i = 0; i < want.size(); ++i) cur[i].ref = want[i];
+        return;
+    }
+    std::vector<InsertInstance> next;
+    std::vector<bool> used(cur.size(), false);
+    for (auto& r : want) {
+        InsertInstance inst;
+        inst.ref = r;
+        for (size_t j = 0; j < cur.size(); ++j)
+            if (!used[j] && matches(cur[j].ref, r)) { used[j] = true; inst.plugin = std::move(cur[j].plugin); inst.error = cur[j].error; break; }
+        if (!inst.plugin && inst.error.isEmpty()) {
+            juce::String err;
+            inst.plugin = plugins->instantiate(r, engine->sampleRate(), engine->blockSize(), err);
+            if (!inst.plugin) inst.error = err.isNotEmpty() ? err : juce::String("Could not load the plugin");
+        }
+        next.push_back(std::move(inst));
+    }
+    for (size_t j = 0; j < cur.size(); ++j)
+        if (!used[j] && cur[j].plugin) cur[j].plugin->prepareToRemove(); // still in the engine: stops on the audio thread
+    std::vector<plugins::InstrumentPlugin*> ptrs;
+    for (auto& i : next) ptrs.push_back(i.plugin.get());
+    engine->setInserts(t.id(), std::move(ptrs)); // the audio thread no longer sees removed plugins
+    for (size_t j = 0; j < cur.size(); ++j)
+        if (!used[j] && cur[j].plugin) insertEditors.erase(cur[j].plugin.get()); // close its window first
+    cur = std::move(next); // removed plugins are destroyed here, on the message thread
+}
+
+void AppContext::prepareToRemove(model::TrackId id)
+{
+    if (auto* inst = engine->instrument(id)) inst->prepareToRemove();
+    if (auto it = inserts.find(id); it != inserts.end())
+        for (auto& i : it->second) if (i.plugin) i.plugin->prepareToRemove();
+}
+
+void AppContext::clearInserts(model::TrackId id)
+{
+    auto it = inserts.find(id);
+    if (it == inserts.end()) return;
+    for (auto& i : it->second) if (i.plugin) insertEditors.erase(i.plugin.get());
+    inserts.erase(it);
+}
+
+void AppContext::captureInsertStates(model::Track& t)
+{
+    auto it = inserts.find(t.id());
+    if (it == inserts.end()) return;
+    for (size_t i = 0; i < it->second.size() && i < t.inserts.size(); ++i)
+        if (auto* p = it->second[i].plugin.get()) {
+            const auto state = p->getState();
+            t.inserts[i].stateBase64 = state.getSize() ? state.toBase64Encoding().toStdString() : std::string();
+        }
+}
+
+void AppContext::editInserts(model::TrackId id, const std::function<void(std::vector<model::PluginReference>&)>& f)
+{
+    auto* t = project.track(id);
+    if (!t) return;
+    captureInsertStates(*t); // so undo/redo bring plugins back with their current settings
+    changeTrack(id, [&](model::TrackProperties& p) { f(p.inserts); model::assignInsertIds(p.inserts); });
+}
+
+void AppContext::addInsert(model::TrackId id, const plugins::PluginInfo& info)
+{
+    editInserts(id, [&](auto& v) { v.push_back(plugins::PluginManager::referenceFor(info)); });
+}
+
+void AppContext::replaceInsert(model::TrackId id, int index, const plugins::PluginInfo& info)
+{
+    // the replacement gets a new slot id (uid 0 -> assigned), so it is a new instance even for the same plugin
+    editInserts(id, [&](auto& v) { if (index >= 0 && index < (int)v.size()) v[(size_t)index] = plugins::PluginManager::referenceFor(info); });
+}
+
+void AppContext::removeInsert(model::TrackId id, int index)
+{
+    editInserts(id, [&](auto& v) { if (index >= 0 && index < (int)v.size()) v.erase(v.begin() + index); });
+}
+
+void AppContext::moveInsert(model::TrackId id, int from, int to)
+{
+    editInserts(id, [&](auto& v) {
+        if (from < 0 || from >= (int)v.size() || to < 0 || to >= (int)v.size() || from == to) return;
+        auto r = v[(size_t)from];
+        v.erase(v.begin() + from);
+        v.insert(v.begin() + to, r);
+    });
+}
+
+void AppContext::setInsertBypass(model::TrackId id, int index, bool b)
+{
+    editInserts(id, [&](auto& v) { if (index >= 0 && index < (int)v.size()) v[(size_t)index].bypassed = b; });
+}
+
+void AppContext::setInsertsAfterBuiltins(model::TrackId id, bool after)
+{
+    changeTrack(id, [&](model::TrackProperties& p) { p.insertsAfterBuiltins = after; });
+}
+
+juce::String AppContext::insertError(model::TrackId id, int index) const
+{
+    auto it = inserts.find(id);
+    if (it == inserts.end() || index < 0 || index >= (int)it->second.size()) return {};
+    return it->second[(size_t)index].error;
+}
+
+void AppContext::openInsertEditor(model::TrackId id, int index)
+{
+    auto it = inserts.find(id);
+    if (it == inserts.end() || index < 0 || index >= (int)it->second.size()) return;
+    auto* p = it->second[(size_t)index].plugin.get();
+    if (!p) return;
+    if (auto w = insertEditors.find(p); w != insertEditors.end()) { w->second->toFront(true); return; }
+    if (auto* ed = p->createEditor()) {
+        auto* t = project.track(id);
+        insertEditors[p] = std::make_unique<PluginEditorWindow>(juce::String(t ? t->name : "") + " - " + p->name(), ed,
+                                                                [this, p] { insertEditors.erase(p); });
+    }
+}
+
 // ---------------------------------------------------------------- transport
 void AppContext::play() { engine->play(); sendChangeMessage(); }
 
@@ -503,10 +1042,16 @@ void AppContext::stop()
     if (!engine) return;
     const bool wasPlaying = engine->isPlaying();
     engine->stop();
-    if (recorder.isRecording()) {
-        auto notes = recorder.finish((model::Tick)engine->position());
-        if (!notes.empty() && project.midiTrack(project.activeTrack))
-            undo.perform(std::make_unique<model::AddNotesCommand>(project.activeTrack, notes, "Record"));
+    if (isRecording()) {
+        std::vector<std::unique_ptr<model::Command>> cmds;
+        if (recorder.isRecording()) {
+            auto notes = recorder.finish((model::Tick)engine->position());
+            if (!notes.empty() && project.midiTrack(project.activeTrack))
+                cmds.push_back(std::make_unique<model::AddNotesCommand>(project.activeTrack, notes, "Record"));
+        }
+        if (engine->isRecordingAudio()) finishAudioRecording(cmds);
+        if (cmds.size() == 1) undo.perform(std::move(cmds.front()));
+        else if (!cmds.empty()) undo.perform(std::make_unique<model::CompoundCommand>(std::move(cmds), "Record"));
     } else if (!wasPlaying) {
         engine->setPosition(0); // second Stop returns to start
     }
@@ -515,8 +1060,15 @@ void AppContext::stop()
 
 void AppContext::toggleRecord()
 {
-    if (recorder.isRecording()) { stop(); return; }
-    if (!activeMidiTrack()) return;
+    if (isRecording()) { stop(); return; }
+    bool anyArmed = false;
+    for (auto* a : audioTracks()) anyArmed = anyArmed || a->armed;
+    if (!activeMidiTrack() && !anyArmed) {
+        juce::AlertWindow::showMessageBoxAsync(juce::MessageBoxIconType::InfoIcon, "Nothing to record",
+            "Add a piano roll track to record MIDI, or add an audio track and press its record button (R) to record audio.");
+        return;
+    }
+    if (anyArmed && !startAudioRecording()) return;
     recorder.start(project.loopStart, project.loopEnd, project.loopEnabled);
     if (countIn > 0 && !engine->isPlaying())
         engine->playWithCountIn((model::Tick)countIn * seq::ticksPerBar(project.timeSig));

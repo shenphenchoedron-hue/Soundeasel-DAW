@@ -82,8 +82,8 @@ void ModifyNotesCommand::revert(Project& p)
 void AddTrackCommand::apply(Project& p)
 {
     if (stash_) { id_ = stash_->id(); p.insertTrack((int)p.tracks().size(), std::move(stash_)); }
-    else id_ = p.addMidiTrack(name_).id();
-    p.activeTrack = id_;
+    else id_ = kind_ == TrackKind::Audio ? p.addAudioTrack(name_).id() : p.addMidiTrack(name_).id();
+    if (kind_ == TrackKind::Midi) p.activeTrack = id_; // the piano roll edits MIDI tracks only
 }
 
 void AddTrackCommand::revert(Project& p) { stash_ = p.removeTrack(id_); }
@@ -105,14 +105,20 @@ TrackProperties TrackProperties::from(const Track& t)
 {
     TrackProperties tp;
     tp.name = t.name; tp.mute = t.mute; tp.solo = t.solo; tp.volume = t.volume; tp.pan = t.pan; tp.colour = t.colour;
+    tp.eq = t.eq; tp.compressor = t.compressor; tp.reverb = t.reverb;
+    tp.inserts = t.inserts; tp.insertsAfterBuiltins = t.insertsAfterBuiltins;
     if (auto* m = dynamic_cast<const MidiTrack*>(&t)) { tp.channel = m->channel; tp.plugin = m->plugin; }
+    if (auto* a = dynamic_cast<const AudioTrack*>(&t)) { tp.input = a->input; tp.stereoInput = a->stereoInput; }
     return tp;
 }
 
 void TrackProperties::applyTo(Track& t) const
 {
     t.name = name; t.mute = mute; t.solo = solo; t.volume = volume; t.pan = pan; t.colour = colour;
+    t.eq = eq; t.compressor = compressor; t.reverb = reverb;
+    t.inserts = inserts; t.insertsAfterBuiltins = insertsAfterBuiltins;
     if (auto* m = dynamic_cast<MidiTrack*>(&t)) { m->channel = channel; m->plugin = plugin; }
+    if (auto* a = dynamic_cast<AudioTrack*>(&t)) { a->input = input; a->stereoInput = stereoInput; }
 }
 
 void SetTrackPropertiesCommand::apply(Project& p)  { if (auto* t = p.track(id_)) after_.applyTo(*t); }

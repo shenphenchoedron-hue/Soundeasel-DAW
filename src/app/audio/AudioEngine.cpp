@@ -3,20 +3,28 @@
 
 namespace mc::audio {
 
+namespace {
+constexpr int kClipFade = 64; // samples of fade at clip edges (avoids clicks)
+}
+
 AudioEngine::AudioEngine(juce::AudioDeviceManager& d) : devices(d)
 {
     mixBuffer.setSize(2, 4096);
+    busBuffer.setSize(2, 4096);
+    silence.setSize(2, 4096);
+    silence.clear();
     devices.addAudioCallback(this);
 }
 
 AudioEngine::~AudioEngine()
 {
     devices.removeAudioCallback(this);
+    stopAudioRecording();
     const juce::ScopedLock l(slotLock);
     slots.clear();
 }
 
-void AudioEngine::setSnapshot(std::shared_ptr<const seq::SequenceSnapshot> s)
+void AudioEngine::setSnapshot(std::shared_ptr<const PlaybackSnapshot> s)
 {
     {
         const juce::SpinLock::ScopedLockType l(snapshotLock);
@@ -49,6 +57,9 @@ std::unique_ptr<plugins::InstrumentPlugin> AudioEngine::setInstrument(model::Tra
         auto ns = std::make_unique<Slot>();
         ns->id = id;
         ns->midi.ensureSize(8192);
+        ns->eq.prepare(sampleRate());
+        ns->comp.prepare(sampleRate());
+        ns->reverb.prepare(sampleRate()); // allocates: never on the audio thread
         s = ns.get();
         slots.push_back(std::move(ns));
     }
@@ -84,7 +95,24 @@ std::unique_ptr<plugins::InstrumentPlugin> AudioEngine::removeTrack(model::Track
         for (auto it = slots.begin(); it != slots.end(); ++it)
             if ((*it)->id == id) { removed = std::move(*it); slots.erase(it); break; }
     }
-    return removed ? std::move(removed->plugin) : nullptr;
+    return removed ? std::move(removed->plugin) : nullptr; // a recording writer is flushed and closed here
+}
+
+void AudioEngine::setInserts(model::TrackId id, std::vector<plugins::InstrumentPlugin*> list)
+{
+    const juce::ScopedLock l(slotLock);
+    if (auto* s = findSlot(id)) s->inserts = std::move(list);
+}
+
+void AudioEngine::runInserts(Slot& s, const seq::TrackSequence* ts, juce::AudioBuffer<float>& buf)
+{
+    for (size_t k = 0; k < s.inserts.size(); ++k) {
+        auto* p = s.inserts[k];
+        if (!p) continue;
+        if (ts && k < ts->insertBypassed.size() && ts->insertBypassed[k]) continue;
+        s.fxMidi.clear();
+        p->process(buf, s.fxMidi);
+    }
 }
 
 std::vector<model::TrackId> AudioEngine::trackIds() const
@@ -93,6 +121,43 @@ std::vector<model::TrackId> AudioEngine::trackIds() const
     std::vector<model::TrackId> ids;
     for (auto& s : slots) ids.push_back(s->id);
     return ids;
+}
+
+AudioEngine::Levels AudioEngine::takeTrackLevels(model::TrackId id)
+{
+    jassert(juce::MessageManager::existsAndIsCurrentThread());
+    auto* s = findSlot(id);
+    if (!s) return {};
+    return {s->peakL.exchange(0.0f), s->peakR.exchange(0.0f), s->peakIn.exchange(0.0f), s->gainReduction.exchange(0.0f)};
+}
+
+AudioEngine::Levels AudioEngine::takeMasterLevels()
+{
+    return {masterPeakL.exchange(0.0f), masterPeakR.exchange(0.0f), 0.0f};
+}
+
+void AudioEngine::startAudioRecording(std::vector<std::pair<model::TrackId, std::unique_ptr<Writer>>> writers)
+{
+    jassert(juce::MessageManager::existsAndIsCurrentThread());
+    stopAudioRecording();
+    recordStartPos_ = -1.0;
+    for (auto& [id, w] : writers)
+        if (auto* s = findSlot(id)) {
+            s->writerOwner = std::move(w);
+            s->writer = s->writerOwner.get();
+        }
+    audioRecording_ = true;
+}
+
+double AudioEngine::stopAudioRecording()
+{
+    audioRecording_ = false;
+    for (auto& s : slots) s->writer = nullptr;
+    {
+        const juce::ScopedLock l(slotLock); // waits for a running callback: no writer is in use after this
+    }
+    for (auto& s : slots) s->writerOwner.reset(); // flushes the remaining samples and closes the file
+    return recordStartPos_.load();
 }
 
 void AudioEngine::pushLive(model::TrackId track, const juce::MidiMessage& m)
@@ -113,15 +178,33 @@ void AudioEngine::audioDeviceAboutToStart(juce::AudioIODevice* d)
 {
     sampleRate_ = d->getCurrentSampleRate();
     blockSize_ = d->getCurrentBufferSizeSamples();
-    mixBuffer.setSize(2, std::max(4096, blockSize_.load()));
+    numInputs_ = d->getActiveInputChannels().countNumberOfSetBits();
+    numOutputs_ = d->getActiveOutputChannels().countNumberOfSetBits();
+    latency_ = d->getInputLatencyInSamples() + d->getOutputLatencyInSamples();
+    const int size = std::max(4096, blockSize_.load());
+    mixBuffer.setSize(2, size);
+    busBuffer.setSize(2, size);
+    silence.setSize(2, size);
+    silence.clear();
+    running_ = true;
     const juce::ScopedLock l(slotLock);
-    for (auto& s : slots) if (s->plugin) s->plugin->prepare(sampleRate_, blockSize_);
+    for (auto& s : slots) {
+        if (s->plugin) s->plugin->prepare(sampleRate_, blockSize_);
+        for (auto* p : s->inserts) if (p) p->prepare(sampleRate_, blockSize_);
+        s->eq.prepare(sampleRate_);
+        s->comp.prepare(sampleRate_);
+        s->reverb.prepare(sampleRate_);
+    }
 }
 
 void AudioEngine::audioDeviceStopped()
 {
+    running_ = false;
     const juce::ScopedLock l(slotLock);
-    for (auto& s : slots) if (s->plugin) s->plugin->release();
+    for (auto& s : slots) {
+        if (s->plugin) s->plugin->release();
+        for (auto* p : s->inserts) if (p) p->release();
+    }
 }
 
 void AudioEngine::releaseHeld(Slot& s, int offset)
@@ -132,14 +215,15 @@ void AudioEngine::releaseHeld(Slot& s, int offset)
     s.held.reset();
 }
 
-void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*, int, float* const* out, int numOut, int numSamples,
+void AudioEngine::audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int numSamples,
                                                    const juce::AudioIODeviceCallbackContext&)
 {
+    const juce::ScopedNoDenormals noDenormals; // reverb tails and compressor envelopes
     for (int c = 0; c < numOut; ++c) if (out[c]) juce::FloatVectorOperations::clear(out[c], numSamples);
 
     {
         const juce::SpinLock::ScopedTryLockType l(snapshotLock);
-        if (l.isLocked() && pendingSnapshot != audioSnapshot) audioSnapshot = pendingSnapshot;
+        if (l.isLocked() && pendingSnapshot != audioSnapshot) { audioSnapshot = pendingSnapshot; ++snapshotGeneration; }
     }
 
     const juce::ScopedTryLock l(slotLock);
@@ -147,13 +231,14 @@ void AudioEngine::audioDeviceIOCallbackWithContext(const float* const*, int, flo
 
     const int maxChunk = std::min(mixBuffer.getNumSamples(), std::max(1, blockSize_.load()));
     for (int start = 0; start < numSamples; start += maxChunk)
-        renderChunk(out, numOut, start, std::min(maxChunk, numSamples - start));
+        renderChunk(in, numIn, out, numOut, start, std::min(maxChunk, numSamples - start));
 }
 
-void AudioEngine::renderChunk(float* const* out, int numOut, int start, int n)
+void AudioEngine::renderChunk(const float* const* in, int numIn, float* const* out, int numOut, int start, int n)
 {
     // transport commands
     numPendingClicks = 0;
+    numSegments = 0;
     if (stopRequested_.exchange(false)) {
         playing_ = false;
         countInLeft_ = 0;
@@ -197,28 +282,35 @@ void AudioEngine::renderChunk(float* const* out, int numOut, int start, int n)
         }
     }
 
+    const auto* snap = audioSnapshot.get();
+    const bool songRolling = playing_ && seqStart < n;
+    const double recordPos = pos; // song position at sample seqStart
+
     // sequencer
-    if (playing_ && audioSnapshot && seqStart < n) {
+    if (songRolling && snap) {
         const double tps = seq::ticksPerSample(tempo_.load(), sampleRate_.load());
+        // While audio is recorded the song plays straight through (no loop jumps), so takes stay continuous.
+        const bool loop = loopEnabled_ && !audioRecording_;
         int sampleAt = seqStart;
         while (sampleAt < n) {
             int len = n - sampleAt;
             double segEnd = pos + len * tps;
             bool wrap = false;
             const auto le = (double)loopEnd_.load();
-            if (loopEnabled_ && pos < le && segEnd >= le) {
+            if (loop && pos < le && segEnd >= le) {
                 len = std::max(1, (int)std::ceil((le - pos) / tps));
                 len = std::min(len, n - sampleAt);
                 segEnd = le;
                 wrap = true;
             }
+            if (numSegments < (int)segments.size()) segments[(size_t)numSegments++] = {sampleAt, len, pos};
             const auto fromT = (model::Tick)std::ceil(pos);
             const auto toT = (model::Tick)std::ceil(segEnd);
             if (metronomeOn_) scheduleClicks(pos, segEnd, tps, sampleAt, n, pos);
             for (auto& s : slots) {
                 const seq::TrackSequence* ts = nullptr;
-                for (auto& t : audioSnapshot->tracks) if (t.trackId == s->id) { ts = &t; break; }
-                if (!ts) continue;
+                for (auto& t : snap->seq.tracks) if (t.trackId == s->id) { ts = &t; break; }
+                if (!ts || ts->isAudio) continue;
                 if (!ts->audible) { releaseHeld(*s, sampleAt); continue; }
                 ts->forEachInRange(fromT, toT, [&](const seq::SeqEvent& e) {
                     const int off = juce::jlimit(0, n - 1, sampleAt + (int)(((double)e.tick - pos) / tps));
@@ -239,24 +331,182 @@ void AudioEngine::renderChunk(float* const* out, int numOut, int start, int n)
                 for (auto& s : slots) releaseHeld(*s, std::min(sampleAt, n - 1));
             }
         }
+    } else if (songRolling) {
+        pos += (n - seqStart) * seq::ticksPerSample(tempo_.load(), sampleRate_.load());
     }
     position_ = pos;
 
-    // render + mix
-    const auto* snap = audioSnapshot.get();
-    for (auto& s : slots) {
-        if (!s->plugin || s->bypassed) { s->midi.clear(); continue; }
-        juce::AudioBuffer<float> buf(mixBuffer.getArrayOfWritePointers(), 2, n); // no allocation: refers to existing data
+    // render every track through its channel strip into the Mains bus
+    const double sr = sampleRate_.load(), bpm = tempo_.load();
+    juce::AudioBuffer<float> bus(busBuffer.getArrayOfWritePointers(), 2, n); // no allocation: refers to existing data
+    bus.clear();
+    bool wroteAudio = false;
+    for (size_t si = 0; si < slots.size(); ++si) {
+        auto& s = slots[si];
+        const seq::TrackSequence* ts = nullptr;
+        const std::vector<PlaybackSnapshot::Clip>* clips = nullptr;
+        if (snap)
+            for (size_t i = 0; i < snap->seq.tracks.size(); ++i)
+                if (snap->seq.tracks[i].trackId == s->id) {
+                    ts = &snap->seq.tracks[i];
+                    if (i < snap->clips.size()) clips = &snap->clips[i];
+                    break;
+                }
+
+        juce::AudioBuffer<float> buf(mixBuffer.getArrayOfWritePointers(), 2, n);
         buf.clear();
-        s->plugin->process(buf, s->midi);
+        if (s->plugin && !s->bypassed) s->plugin->process(buf, s->midi);
         s->midi.clear();
-        float vol = 0.8f, pan = 0.0f;
-        if (snap) for (auto& t : snap->tracks) if (t.trackId == s->id) { vol = t.volume; pan = t.pan; break; }
-        const float gl = vol * std::min(1.0f, 1.0f - pan), gr = vol * std::min(1.0f, 1.0f + pan);
-        if (numOut > 0 && out[0]) juce::FloatVectorOperations::addWithMultiply(out[0] + start, buf.getReadPointer(0), gl, n);
-        if (numOut > 1 && out[1]) juce::FloatVectorOperations::addWithMultiply(out[1] + start, buf.getReadPointer(1), gr, n);
+
+        if (ts && ts->isAudio) {
+            if (clips && !clips->empty() && numSegments > 0) renderClips(*clips, buf, bpm, sr);
+            // input: meter, monitoring, recording
+            const int ch = ts->input;
+            const bool hasIn = ch >= 0 && ch < numIn && in[ch] != nullptr;
+            const bool hasIn2 = ts->stereoInput && ch + 1 < numIn && in[ch + 1] != nullptr;
+            if (hasIn && (ts->armed || ts->monitor)) {
+                const float* l = in[ch] + start;
+                const float* r = hasIn2 ? in[ch + 1] + start : l;
+                float m = 0.0f;
+                for (int i = 0; i < n; ++i) m = std::max(m, std::max(std::abs(l[i]), std::abs(r[i])));
+                storePeak(s->peakIn, m);
+                if (ts->monitor) {
+                    buf.addFrom(0, 0, l, n);
+                    buf.addFrom(1, 0, r, n);
+                }
+            }
+            if (auto* w = s->writer.load(); w && audioRecording_ && songRolling) {
+                const int count = n - seqStart;
+                const float* chans[2] = {silence.getReadPointer(0), silence.getReadPointer(1)};
+                if (hasIn) chans[0] = in[ch] + start + seqStart;
+                if (hasIn2) chans[1] = in[ch + 1] + start + seqStart;
+                w->write(chans, count);
+                wroteAudio = true;
+            }
+        }
+
+        // channel strip: effect plugins (before or after the built-in effects), EQ -> compressor -> reverb
+        const bool insertsLast = ts && ts->insertsAfterBuiltins;
+        if (!s->inserts.empty() && !insertsLast) runInserts(*s, ts, buf);
+        if (ts) {
+            float* L = buf.getWritePointer(0);
+            float* R = buf.getWritePointer(1);
+            if (ts->eq.enabled) {
+                // Snapshots are immutable: new settings always come with a new snapshot.
+                if (s->eqGeneration != snapshotGeneration) { s->eq.setSettings(ts->eq); s->eqGeneration = snapshotGeneration; }
+                if (!s->eqOn) { s->eq.reset(); s->eqOn = true; }
+                s->eq.process(L, R, n);
+            } else {
+                s->eqOn = false;
+            }
+            if (ts->compressor.enabled) {
+                if (!(ts->compressor == s->compSettings)) { s->comp.setSettings(ts->compressor); s->compSettings = ts->compressor; }
+                if (!s->compOn) { s->comp.reset(); s->compOn = true; }
+                s->comp.process(L, R, n);
+                storePeak(s->gainReduction, s->comp.gainReductionDb());
+            } else {
+                s->compOn = false;
+            }
+            if (ts->reverb.enabled) {
+                if (!(ts->reverb == s->reverbSettings)) { s->reverb.setSettings(ts->reverb); s->reverbSettings = ts->reverb; }
+                if (!s->reverbOn) { s->reverb.reset(); s->reverbOn = true; } // no old tail when switched on again
+                s->reverb.process(L, R, n);
+            } else {
+                s->reverbOn = false;
+            }
+        }
+
+        if (!s->inserts.empty() && insertsLast) runInserts(*s, ts, buf);
+
+        // volume line (automation): gain ramps between the values at the segment ends
+        if (ts && !ts->volumeAutomation.empty()) {
+            const auto& va = ts->volumeAutomation;
+            if (numSegments == 0) {
+                buf.applyGain(0, n, model::automationAt(va, position_.load()));
+            } else {
+                const double tps = seq::ticksPerSample(bpm, sr);
+                if (segments[0].sampleAt > 0) buf.applyGain(0, segments[0].sampleAt, model::automationAt(va, segments[0].pos));
+                for (int k = 0; k < numSegments; ++k) {
+                    const auto& sg = segments[(size_t)k];
+                    const float g0 = model::automationAt(va, sg.pos), g1 = model::automationAt(va, sg.pos + sg.len * tps);
+                    for (int c = 0; c < 2; ++c) buf.applyGainRamp(c, sg.sampleAt, sg.len, g0, g1);
+                }
+            }
+        }
+
+        // channel strip: volume + pan (smoothed), mute/solo, meter
+        float tl = 0.0f, tr = 0.0f;
+        if (ts && ts->audible) {
+            tl = ts->volume * std::min(1.0f, 1.0f - ts->pan);
+            tr = ts->volume * std::min(1.0f, 1.0f + ts->pan);
+        } else if (!ts) {
+            tl = tr = 0.8f; // track not yet in the snapshot (just added)
+        }
+        buf.applyGainRamp(0, 0, n, s->gainL, tl);
+        buf.applyGainRamp(1, 0, n, s->gainR, tr);
+        s->gainL = tl;
+        s->gainR = tr;
+        storePeak(s->peakL, buf.getMagnitude(0, 0, n));
+        storePeak(s->peakR, buf.getMagnitude(1, 0, n));
+        bus.addFrom(0, 0, buf, 0, 0, n);
+        bus.addFrom(1, 0, buf, 1, 0, n);
+    }
+    if (wroteAudio && recordStartPos_.load() < 0) recordStartPos_ = recordPos;
+
+    // Mains: stereo bus with balance
+    const float mg = snap ? snap->seq.masterVolume : 1.0f;
+    const float bal = snap ? snap->seq.masterBalance : 0.0f;
+    const float ml = mg * std::min(1.0f, 1.0f - bal), mr = mg * std::min(1.0f, 1.0f + bal);
+    bus.applyGainRamp(0, 0, n, masterGainL, ml);
+    bus.applyGainRamp(1, 0, n, masterGainR, mr);
+    masterGainL = ml;
+    masterGainR = mr;
+    storePeak(masterPeakL, bus.getMagnitude(0, 0, n));
+    storePeak(masterPeakR, bus.getMagnitude(1, 0, n));
+    // Mains goes to the first two active outputs (the stereo pair chosen for Mains);
+    // a device with a single output gets a mono sum.
+    if (numOut == 1 && out[0]) {
+        juce::FloatVectorOperations::addWithMultiply(out[0] + start, bus.getReadPointer(0), 0.5f, n);
+        juce::FloatVectorOperations::addWithMultiply(out[0] + start, bus.getReadPointer(1), 0.5f, n);
+    } else {
+        if (numOut > 0 && out[0]) juce::FloatVectorOperations::add(out[0] + start, bus.getReadPointer(0), n);
+        if (numOut > 1 && out[1]) juce::FloatVectorOperations::add(out[1] + start, bus.getReadPointer(1), n);
     }
     renderClicks(out, numOut, start, n);
+    renderTestTone(out, numOut, start, n);
+}
+
+// Adds the clips' audio for every segment where the song plays in this chunk.
+void AudioEngine::renderClips(const std::vector<PlaybackSnapshot::Clip>& clips, juce::AudioBuffer<float>& buf, double bpm, double sr)
+{
+    for (int si = 0; si < numSegments; ++si) {
+        const auto& seg = segments[(size_t)si];
+        const auto songSample = (juce::int64)std::llround(seg.pos / model::kPPQ * 60.0 / bpm * sr);
+        for (auto& c : clips) {
+            if (!c.data || c.length <= 0) continue;
+            const auto clipStart = (juce::int64)std::llround((double)c.start / model::kPPQ * 60.0 / bpm * sr);
+            const juce::int64 rel0 = songSample - clipStart;               // position inside the clip at the segment start
+            const auto from = (int)std::max<juce::int64>(0, -rel0);
+            const auto to = (int)std::min<juce::int64>(seg.len, c.length - rel0);
+            if (from >= to) continue;
+            const auto& src = c.data->audio;
+            const int srcCh = src.getNumChannels();
+            const juce::int64 srcLen = src.getNumSamples();
+            for (int ch = 0; ch < 2; ++ch) {
+                const float* s = src.getReadPointer(std::min(ch, srcCh - 1));
+                float* d = buf.getWritePointer(ch, seg.sampleAt);
+                for (int i = from; i < to; ++i) {
+                    const juce::int64 rel = rel0 + i;
+                    const juce::int64 idx = c.offset + rel;
+                    if (idx < 0 || idx >= srcLen) continue;
+                    float g = c.gain;
+                    if (rel < kClipFade) g *= (float)rel / kClipFade;
+                    else if (c.length - rel < kClipFade) g *= (float)(c.length - rel) / kClipFade;
+                    d[i] += s[idx] * g;
+                }
+            }
+        }
+    }
 }
 
 // Clicks on every beat in [fromTick, toTick); the bar's first beat is accented.
@@ -296,6 +546,24 @@ void AudioEngine::renderClicks(float* const* out, int numOut, int start, int n)
         --clickLeft;
         for (int c = 0; c < std::min(numOut, 2); ++c) if (out[c]) out[c][start + i] += v;
     }
+}
+
+void AudioEngine::renderTestTone(float* const* out, int numOut, int start, int n)
+{
+    int left = testToneLeft_.load();
+    if (left <= 0) return;
+    const double sr = sampleRate_.load();
+    const int total = (int)(sr * 0.8), fade = (int)(sr * 0.02);
+    for (int i = 0; i < n && left > 0; ++i, --left) {
+        const int pos = total - left;
+        float g = 0.2f;
+        if (pos < fade) g *= (float)pos / (float)fade;
+        if (left < fade) g *= (float)left / (float)fade;
+        const float v = (float)std::sin(testPhase) * g;
+        testPhase += juce::MathConstants<double>::twoPi * 440.0 / sr;
+        for (int c = 0; c < std::min(numOut, 2); ++c) if (out[c]) out[c][start + i] += v;
+    }
+    testToneLeft_ = left;
 }
 
 } // namespace mc::audio

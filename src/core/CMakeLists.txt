@@ -11,6 +11,9 @@ add_library(mc_core STATIC
     io/ProjectSerializer.cpp
     io/MidiFile.cpp
     io/MusicXml.cpp
+    dsp/Compressor.cpp
+    dsp/Reverb.cpp
+    dsp/Equalizer.cpp
 )
 target_include_directories(mc_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_compile_features(mc_core PUBLIC cxx_std_20)

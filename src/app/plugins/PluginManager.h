@@ -17,6 +17,8 @@ public:
     // Background-thread safe. Replaces the cache; persists it.
     void rescan(const std::function<bool(float, const juce::String&)>& progress);
     bool hasCache() const { return cacheFile.existsAsFile(); }
+    // Plugin lists from older versions only contain instruments: effects need a rescan.
+    bool effectsScanned() const { return hasCache() && cacheVersion >= 2; }
     // Folder where users drop extra .sf2 files (picked up by the next rescan).
     juce::File userSoundsFolder() const { return userSounds; }
 
@@ -31,6 +33,8 @@ private:
     void loadCache();
     void saveCache() const;
 
+    static constexpr int kCacheVersion = 2; // 2: effects included
+    int cacheVersion = 0;
     juce::File cacheFile, userSounds;
     std::vector<std::unique_ptr<InstrumentPluginHost>> hosts;
     std::vector<PluginInfo> plugins_;

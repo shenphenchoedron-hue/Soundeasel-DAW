@@ -5,11 +5,27 @@ namespace mc::settings {
 Settings::Settings()
 {
     juce::PropertiesFile::Options o;
-    o.applicationName = "MidiComposer";
+    o.applicationName = "SoundeaselDAW";
     o.filenameSuffix = ".settings";
-    o.folderName = "MidiComposer";
+    o.folderName = "SoundeaselDAW";
     o.osxLibrarySubFolder = "Application Support";
     o.storageFormat = juce::PropertiesFile::storeAsXML;
+
+    // First start of Soundeasel DAW: take over the settings, plugin list and sounds of MIDI Composer.
+    const auto newFile = o.getDefaultFile();
+    if (!newFile.existsAsFile()) {
+        auto old = o;
+        old.applicationName = "MidiComposer";
+        old.folderName = "MidiComposer";
+        const auto oldFile = old.getDefaultFile();
+        if (oldFile.existsAsFile()) {
+            const auto dir = newFile.getParentDirectory(), oldDir = oldFile.getParentDirectory();
+            dir.createDirectory();
+            oldFile.copyFileTo(newFile);
+            if (auto cache = oldDir.getChildFile("plugin-cache.json"); cache.existsAsFile()) cache.copyFileTo(dir.getChildFile(cache.getFileName()));
+            if (auto sounds = oldDir.getChildFile("Sounds"); sounds.isDirectory()) sounds.copyDirectoryTo(dir.getChildFile("Sounds"));
+        }
+    }
     props.setStorageParameters(o);
 }
 
@@ -46,6 +62,11 @@ float Settings::metronomeLevel() const { return juce::jlimit(0.0f, 1.0f, (float)
 void Settings::setMetronomeLevel(float v) { file().setValue("metronomeLevel", (double)v); file().saveIfNeeded(); }
 int Settings::countInBars() const { return juce::jlimit(0, 8, file().getIntValue("countInBars", 1)); }
 void Settings::setCountInBars(int n) { file().setValue("countInBars", n); file().saveIfNeeded(); }
+
+bool Settings::pianoRollVisible() const { return file().getBoolValue("pianoRollVisible", true); }
+void Settings::setPianoRollVisible(bool b) { file().setValue("pianoRollVisible", b); file().saveIfNeeded(); }
+bool Settings::mixerVisible() const { return file().getBoolValue("mixerVisible", false); }
+void Settings::setMixerVisible(bool b) { file().setValue("mixerVisible", b); file().saveIfNeeded(); }
 
 juce::File Settings::lastDirectory() const
 {

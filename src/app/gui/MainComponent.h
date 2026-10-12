@@ -1,6 +1,9 @@
 #pragma once
 #include "AppContext.h"
+#include "gui/AudioTracksComponent.h"
 #include "gui/ChordPanel.h"
+#include "gui/MidiOverviewComponent.h"
+#include "gui/MixerComponent.h"
 #include "gui/PianoRollComponent.h"
 #include "gui/StepSequencerComponent.h"
 #include "gui/TrackListComponent.h"
@@ -33,6 +36,9 @@ private:
     void exportDialog();
     void exportMusicXmlDialog();
     void importMusicXmlDialog();
+    void setMixerVisible(bool);
+    void setPianoRollVisible(bool);
+    static constexpr int kBarHeight = 34;
     void confirmDiscard(std::function<void()> proceed);
     void showError(const juce::String&);
 
@@ -42,6 +48,11 @@ private:
     TrackListComponent trackList;
     PianoRollComponent pianoRoll;
     StepSequencerComponent stepSeq;
+    AudioTracksComponent audioTracks;
+    MidiOverviewComponent midiOverview;
+    MixerComponent mixer;
+    bool mixerVisible = false, rollVisible = true;
+    juce::TextButton rollBtn;
     // toolbar above the piano roll: zoom
     juce::TextButton zoomOutH{"Zoom out"}, zoomInH{"Zoom in"}, zoomOutV{"Lower"}, zoomInV{"Taller"};
     juce::Label zoomLabel{{}, "Zoom"}, gridLabel{{}, "Grid"};
@@ -52,6 +63,7 @@ private:
     // step sequencers are placed after the piano roll and never shrink it.
     struct Page final : juce::Component {
         juce::Rectangle<int> toolbar;
+        int darkFrom = 0; // below the panels: dark background like the lanes
         void paint(juce::Graphics&) override;
     };
     juce::Viewport page;

@@ -7,11 +7,11 @@ namespace mc::gui {
 class PluginBrowser final : public juce::Component, private juce::TableListBoxModel {
 public:
     using Choose = std::function<void(const plugins::PluginInfo&)>;
-    PluginBrowser(AppContext&, Choose onChoose);
+    PluginBrowser(AppContext&, Choose onChoose, bool effects = false);
     void resized() override;
     void paint(juce::Graphics&) override;
 
-    static void show(AppContext&, Choose onChoose);
+    static void show(AppContext&, Choose onChoose, bool effects = false); // effects: list audio effect plugins
     static void rescanWithProgress(AppContext&, std::function<void()> done);
 
 private:
@@ -32,6 +32,7 @@ private:
     std::vector<plugins::PluginInfo> filtered;
     int sortCol = 1;
     bool sortForward = true;
+    bool effects = false;
 };
 
 } // namespace mc::gui

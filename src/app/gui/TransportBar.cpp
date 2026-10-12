@@ -1,5 +1,6 @@
 #include "gui/TransportBar.h"
 #include "sequencer/Timing.h"
+#include "gui/SettingsComponent.h"
 #include "gui/Theme.h"
 
 namespace mc::gui {
@@ -8,7 +9,7 @@ TransportBar::TransportBar(AppContext& a) : app(a)
 {
     for (juce::Component* c : std::initializer_list<juce::Component*>{&toStart, &playBtn, &stopBtn, &recBtn, &loopBtn, &clickBtn, &countInBox,
                                &position, &bpmLabel, &bpm, &sigLabel, &sigNum, &sigDen, &loopLabel, &loopStartBar, &loopEndBar,
-                               &undoBtn, &redoBtn})
+                               &undoBtn, &redoBtn, &mixerBtn, &statusBtn})
         addAndMakeVisible(c);
 
     toStart.onClick = [this] { app.returnToStart(); };
@@ -20,6 +21,8 @@ TransportBar::TransportBar(AppContext& a) : app(a)
     theme::setStyle(stopBtn, theme::styleTransport);
     theme::setStyle(toStart, theme::styleTransport);
     theme::setStyle(loopBtn, theme::styleTransport);
+    mixerBtn.setClickingTogglesState(false);
+    theme::setStyle(mixerBtn, theme::styleTransport);
     // metronome + count-in
     theme::setStyle(clickBtn, theme::styleWarm);
     clickBtn.setTooltip("Metronome on/off (K). Right-click for the volume.");
@@ -65,6 +68,10 @@ TransportBar::TransportBar(AppContext& a) : app(a)
     loopStartBar.onValueChange = loopChanged;
     loopEndBar.onValueChange = loopChanged;
 
+    mixerBtn.setTooltip("Show / hide the mixer: every track plus Mains (F3)");
+    mixerBtn.onClick = [this] { if (onToggleMixer) onToggleMixer(); };
+    statusBtn.onClick = [this] { SettingsComponent::show(app); };
+
     undoBtn.onClick = [this] { app.undo.undo(); };
     redoBtn.onClick = [this] { app.undo.redo(); };
 
@@ -108,6 +115,8 @@ void TransportBar::resized()
     place(loopLabel, 62); place(loopStartBar, 88); place(loopEndBar, 88);
     group();
     place(undoBtn, 54); place(redoBtn, 54);
+    group();
+    place(mixerBtn, 64, gap);
 }
 
 void TransportBar::showMetronomeMenu()
@@ -157,6 +166,12 @@ void TransportBar::refreshFromModel()
     undoBtn.setEnabled(app.undo.canUndo());
     undoBtn.setTooltip("Undo " + juce::String(app.undo.undoName()));
     redoBtn.setEnabled(app.undo.canRedo());
+    const bool ok = app.audioOutputOk();
+    statusBtn.setButtonText(juce::String::fromUTF8(ok ? "\xe2\x97\x8f " : "\xe2\x9a\xa0 ") + app.audioStatusText()); // ● / ⚠
+    statusBtn.setTooltip(ok ? "Sound is working: " + app.audioStatusText() + "\nClick to change the sound device, inputs or play a test sound."
+                            : "No sound output! Click to choose your sound device.");
+    theme::setStyle(statusBtn, ok ? theme::styleSelector : theme::styleDanger);
+    statusBtn.repaint();
     refreshPosition();
 }
 

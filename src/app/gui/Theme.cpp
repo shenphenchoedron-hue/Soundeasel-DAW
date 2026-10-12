@@ -220,11 +220,37 @@ void LookAndFeel::drawTickBox(juce::Graphics& g, juce::Component&, float x, floa
 void LookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int w, int h, float pos, float minPos, float maxPos,
                                    juce::Slider::SliderStyle style, juce::Slider& s)
 {
+    using namespace col;
+    if (style == juce::Slider::LinearVertical) { // mixer fader
+        const float cx = (float)x + (float)w * 0.5f;
+        const float y0 = (float)y + 8, y1 = (float)(y + h) - 8;
+        g.setColour(display);
+        g.fillRoundedRectangle(cx - 2.5f, y0, 5.0f, y1 - y0, 2.5f);
+        const float to = juce::jlimit(y0, y1, pos);
+        g.setColour(s.isEnabled() ? accent : border);
+        g.fillRoundedRectangle(cx - 2.5f, to, 5.0f, y1 - to, 2.5f);
+        // 0 dB tick
+        if (s.getMinimum() < 0 && s.getMaximum() > 0) {
+            const float z = juce::jlimit(y0, y1, y0 + (1.0f - (float)s.valueToProportionOfLength(0.0)) * (y1 - y0));
+            g.setColour(textDim);
+            g.drawHorizontalLine((int)z, cx - 12, cx - 6);
+            g.drawHorizontalLine((int)z, cx + 6, cx + 12);
+        }
+        auto cap = juce::Rectangle<float>(cx - 13, to - 8, 26, 16);
+        g.setColour(juce::Colours::black.withAlpha(0.18f));
+        g.fillRoundedRectangle(cap.translated(0, 1.5f), 3.0f);
+        g.setColour(s.isMouseOverOrDragging() ? fieldHover : field);
+        g.fillRoundedRectangle(cap, 3.0f);
+        g.setColour(s.isMouseOverOrDragging() ? accent : border.darker(0.1f));
+        g.drawRoundedRectangle(cap.reduced(0.5f), 3.0f, 1.0f);
+        g.setColour(text);
+        g.drawHorizontalLine((int)to, cap.getX() + 4, cap.getRight() - 4);
+        return;
+    }
     if (style != juce::Slider::LinearHorizontal) {
         LookAndFeel_V4::drawLinearSlider(g, x, y, w, h, pos, minPos, maxPos, style, s);
         return;
     }
-    using namespace col;
     const float cy = (float)y + (float)h * 0.5f;
     const float x0 = (float)x + 6, x1 = (float)(x + w) - 6;
     juce::Rectangle<float> track(x0, cy - 2, x1 - x0, 4);
@@ -232,7 +258,7 @@ void LookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int w, int h
     g.fillRoundedRectangle(track, 2.0f);
 
     // bipolar sliders (pan) fill from the centre
-    const bool bipolar = s.getMinimum() < 0 && s.getMaximum() > 0;
+    const bool bipolar = s.getMinimum() < 0 && s.getMaximum() > 0 && !s.getProperties().contains("fader");
     const float from = bipolar ? (float)s.valueToProportionOfLength(0.0) * (x1 - x0) + x0 : x0;
     const float to = juce::jlimit(x0, x1, pos);
     g.setColour(s.isEnabled() ? accent : border);
@@ -244,6 +270,30 @@ void LookAndFeel::drawLinearSlider(juce::Graphics& g, int x, int y, int w, int h
     g.fillEllipse(thumb);
     g.setColour(s.isMouseOverOrDragging() ? accent : border.darker(0.1f));
     g.drawEllipse(thumb.reduced(0.5f), 1.0f);
+}
+
+void LookAndFeel::drawRotarySlider(juce::Graphics& g, int x, int y, int w, int h, float pos, float startAngle, float endAngle, juce::Slider& s)
+{
+    using namespace col;
+    const float size = (float)std::min(w, h) - 4.0f;
+    auto r = juce::Rectangle<float>(size, size).withCentre({(float)x + (float)w * 0.5f, (float)y + (float)h * 0.5f});
+    const float cx = r.getCentreX(), cy = r.getCentreY(), rad = size * 0.5f;
+    g.setColour(field);
+    g.fillEllipse(r);
+    g.setColour(s.isMouseOverOrDragging() ? accent : border);
+    g.drawEllipse(r.reduced(0.5f), 1.0f);
+    // value arc (bipolar sliders such as pan start at the centre)
+    const bool bipolar = s.getMinimum() < 0 && s.getMaximum() > 0;
+    const float from = bipolar ? startAngle + (endAngle - startAngle) * (float)s.valueToProportionOfLength(0.0) : startAngle;
+    const float to = startAngle + pos * (endAngle - startAngle);
+    juce::Path arc;
+    arc.addCentredArc(cx, cy, rad - 3.0f, rad - 3.0f, 0.0f, std::min(from, to), std::max(from, to), true);
+    g.setColour(s.isEnabled() ? accent : border);
+    g.strokePath(arc, juce::PathStrokeType(2.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+    juce::Path p;
+    p.addRoundedRectangle(-1.2f, -rad + 4.0f, 2.4f, rad * 0.55f, 1.2f);
+    g.setColour(text);
+    g.fillPath(p, juce::AffineTransform::rotation(to).translated(cx, cy));
 }
 
 juce::Label* LookAndFeel::createSliderTextBox(juce::Slider& s)

@@ -14,7 +14,7 @@ PluginManager::PluginManager(juce::File dataDir)
     userSounds = soundfont::userSoundsFolder(dataDir);
     hosts.push_back(std::make_unique<InternalPluginHost>(userSounds));
     hosts.push_back(std::make_unique<JucePluginHost>(dataDir.getChildFile("plugin-scan-crashed.txt")));
-    hosts.push_back(std::make_unique<ClapPluginHost>());
+    hosts.push_back(std::make_unique<ClapPluginHost>(dataDir.getChildFile("clap-scan-crashed.txt")));
     loadCache();
 }
 
@@ -44,6 +44,7 @@ void PluginManager::rescan(const std::function<bool(float, const juce::String&)>
     {
         std::lock_guard l(mutex);
         plugins_ = std::move(found);
+        cacheVersion = kCacheVersion;
     }
     saveCache();
 }
@@ -88,9 +89,10 @@ void PluginManager::loadCache()
     if (!cacheFile.existsAsFile()) return;
     try {
         auto j = io::Json::parse(cacheFile.loadFileAsString().toStdString());
+        cacheVersion = (int)j["version"].num(1);
         for (auto& e : j["plugins"].arr()) {
             PluginInfo i{e["format"].str(), e["identifier"].str(), e["name"].str(),
-                         e["manufacturer"].str(), e["category"].str(), e["hostData"].str()};
+                         e["manufacturer"].str(), e["category"].str(), e["hostData"].str(), e["instrument"].boolean(true)};
             // Built-ins always come from the current app version, not from the cache.
             if (i.format == InternalPluginHost::kFormat) continue;
             plugins_.push_back(std::move(i));
@@ -107,10 +109,11 @@ void PluginManager::saveCache() const
         std::lock_guard l(mutex);
         for (auto& p : plugins_)
             arr.push_back(io::Json::Object{{"format", p.format}, {"identifier", p.identifier}, {"name", p.name},
-                                           {"manufacturer", p.manufacturer}, {"category", p.category}, {"hostData", p.hostData}});
+                                           {"manufacturer", p.manufacturer}, {"category", p.category}, {"hostData", p.hostData},
+                                           {"instrument", p.isInstrument}});
     }
     io::Json root;
-    root.set("version", 1);
+    root.set("version", kCacheVersion);
     root.set("plugins", arr);
     cacheFile.replaceWithText(root.dump(1));
 }

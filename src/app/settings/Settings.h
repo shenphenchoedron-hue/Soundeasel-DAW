@@ -33,6 +33,11 @@ public:
     int countInBars() const;               // 0 = off
     void setCountInBars(int);
 
+    bool pianoRollVisible() const;
+    void setPianoRollVisible(bool);
+    bool mixerVisible() const;
+    void setMixerVisible(bool);
+
     juce::File lastDirectory() const;
     void setLastDirectory(const juce::File&);
 

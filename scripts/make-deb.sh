@@ -5,51 +5,52 @@ set -euo pipefail
 VERSION="${1#v}"
 OUT="${2:-dist}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-BIN="$ROOT/build/src/app/MidiComposer_artefacts/Release/MIDI Composer"
+BIN="$ROOT/build/src/app/SoundeaselDAW_artefacts/Release/Soundeasel DAW"
 ARCH="$(dpkg --print-architecture)"
-PKG="$(mktemp -d)/midi-composer"
+PKG="$(mktemp -d)/soundeasel-daw"
 
-install -Dm755 "$BIN" "$PKG/usr/lib/midi-composer/midi-composer"
+install -Dm755 "$BIN" "$PKG/usr/lib/soundeasel-daw/soundeasel-daw"
 mkdir -p "$PKG/usr/bin"
-ln -s ../lib/midi-composer/midi-composer "$PKG/usr/bin/midi-composer"
-install -Dm644 "$ROOT/resources/icon.png" "$PKG/usr/share/icons/hicolor/512x512/apps/midi-composer.png"
-install -Dm644 "$ROOT/LICENSE" "$PKG/usr/share/doc/midi-composer/copyright"
+ln -s ../lib/soundeasel-daw/soundeasel-daw "$PKG/usr/bin/soundeasel-daw"
+install -Dm644 "$ROOT/resources/icon.png" "$PKG/usr/share/icons/hicolor/512x512/apps/soundeasel-daw.png"
+install -Dm644 "$ROOT/LICENSE" "$PKG/usr/share/doc/soundeasel-daw/copyright"
 # Built-in instruments (GeneralUser GS SoundFont) + its license
 ART="$(dirname "$BIN")"
-install -Dm644 "$ART/GeneralUser-GS.sf2" "$PKG/usr/share/midi-composer/GeneralUser-GS.sf2"
-install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/midi-composer/GeneralUser-GS-LICENSE.txt"
-install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/doc/midi-composer/GeneralUser-GS-LICENSE.txt"
-install -Dm644 "$ART/MIDI-Composer-Manual.pdf" "$PKG/usr/share/doc/midi-composer/MIDI-Composer-Manual.pdf"
+install -Dm644 "$ART/GeneralUser-GS.sf2" "$PKG/usr/share/soundeasel-daw/GeneralUser-GS.sf2"
+install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/soundeasel-daw/GeneralUser-GS-LICENSE.txt"
+install -Dm644 "$ART/GeneralUser-GS-LICENSE.txt" "$PKG/usr/share/doc/soundeasel-daw/GeneralUser-GS-LICENSE.txt"
+install -Dm644 "$ART/MIDI-Composer-Manual.pdf" "$PKG/usr/share/doc/soundeasel-daw/MIDI-Composer-Manual.pdf"
 
 mkdir -p "$PKG/usr/share/applications"
-cat > "$PKG/usr/share/applications/midi-composer.desktop" <<DESK
+cat > "$PKG/usr/share/applications/soundeasel-daw.desktop" <<DESK
 [Desktop Entry]
 Type=Application
-Name=MIDI Composer
-Comment=MIDI composition with scale-based chord input
-Exec=midi-composer %f
-Icon=midi-composer
+Name=Soundeasel DAW
+Comment=Easy digital audio workstation: instruments, step sequencer, audio tracks and mixer
+Exec=soundeasel-daw %f
+Icon=soundeasel-daw
 Terminal=false
 Categories=AudioVideo;Audio;Midi;Music;
-MimeType=audio/midi;audio/x-midi;
+MimeType=audio/midi;audio/x-midi;audio/x-wav;audio/flac;
 DESK
 
 mkdir -p "$PKG/DEBIAN"
 cat > "$PKG/DEBIAN/control" <<CTRL
-Package: midi-composer
+Package: soundeasel-daw
 Version: $VERSION
 Section: sound
 Priority: optional
 Architecture: $ARCH
 Depends: libasound2 | libasound2t64, libfreetype6, libfontconfig1, libx11-6, libxext6, libxrandr2, libxinerama1, libxcursor1, libgtk-3-0 | libgtk-3-0t64
 Maintainer: shenphenchoedron-hue <shenphenchoedron-hue@users.noreply.github.com>
-Homepage: https://github.com/shenphenchoedron-hue/easymidieditor
-Description: MIDI composer with scale-based chord input
- Multi-track MIDI editor with piano roll, MIDI keyboard input, recording,
+Homepage: https://github.com/shenphenchoedron-hue/Soundeasel-DAW
+Description: Easy digital audio workstation
+ Instrument tracks with piano roll and step sequencer, audio tracks
+ (record and import audio), a mixer with Mains, MIDI keyboard input,
  built-in band instruments (GeneralUser GS), SoundFont (.sf2) and
  instrument plugins (VST3/LV2), and diatonic chord input with inversions
  and 7th/9th chords.
 CTRL
 
 mkdir -p "$OUT"
-dpkg-deb --build --root-owner-group "$PKG" "$OUT/midi-composer_${VERSION}_${ARCH}.deb"
+dpkg-deb --build --root-owner-group "$PKG" "$OUT/soundeasel-daw_${VERSION}_${ARCH}.deb"

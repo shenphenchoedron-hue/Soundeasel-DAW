@@ -127,8 +127,20 @@ public:
     // hasEditor() is queried once and cached: for VST3, JUCE answers it by creating
     // (and destroying) the plugin's whole editor view. For Native Instruments
     // plugins that means building a Qt GUI, which made every UI refresh crawl.
-    JuceInstrument(std::unique_ptr<juce::AudioPluginInstance> i, std::string fmt)
-        : inst(std::move(i)), fmt_(std::move(fmt)), hasEditor_(inst->hasEditor()) {}
+    JuceInstrument(std::unique_ptr<juce::AudioPluginInstance> i, std::string fmt, bool effect)
+        : inst(std::move(i)), fmt_(std::move(fmt)), hasEditor_(inst->hasEditor()), effect_(effect)
+    {
+        if (effect_) {
+            // An insert effect: main stereo in/out only (no side chains), if the plugin allows it.
+            inst->disableNonMainBuses();
+            auto layout = inst->getBusesLayout();
+            if (layout.inputBuses.size() > 0 && layout.outputBuses.size() > 0) {
+                layout.inputBuses.getReference(0) = juce::AudioChannelSet::stereo();
+                layout.outputBuses.getReference(0) = juce::AudioChannelSet::stereo();
+                if (inst->checkBusesLayoutSupported(layout)) inst->setBusesLayout(layout);
+            }
+        }
+    }
     ~JuceInstrument() override { inst->releaseResources(); }
 
     std::string name() const override { return inst->getName().toStdString(); }
@@ -157,7 +169,18 @@ public:
         if (n > maxBlock) return; // engine guarantees this never happens
         scratch.setSize(scratch.getNumChannels(), n, false, false, true);
         scratch.clear();
+        if (effect_) {
+            const int ins = inst->getTotalNumInputChannels();
+            if (ins == 1) { // mono effect: feed it the mono sum
+                scratch.copyFrom(0, 0, audio, 0, 0, n);
+                scratch.addFrom(0, 0, audio, 1, 0, n);
+                scratch.applyGain(0, 0, n, 0.5f);
+            } else {
+                for (int c = 0; c < std::min(ins, audio.getNumChannels()); ++c) scratch.copyFrom(c, 0, audio, c, 0, n);
+            }
+        }
         inst->processBlock(scratch, midi);
+        if (effect_ && inst->getTotalNumOutputChannels() == 0) return; // analyser-like plugin: leave the audio as it is
         const int outs = std::max(1, inst->getTotalNumOutputChannels());
         for (int c = 0; c < audio.getNumChannels(); ++c)
             audio.copyFrom(c, 0, scratch, std::min(c, outs - 1), 0, n);
@@ -167,6 +190,7 @@ private:
     std::unique_ptr<juce::AudioPluginInstance> inst;
     std::string fmt_;
     bool hasEditor_ = false;
+    bool effect_ = false;
     juce::AudioBuffer<float> scratch;
     int maxBlock = 0;
 };
@@ -175,7 +199,11 @@ private:
 
 JucePluginHost::JucePluginHost(juce::File pedal) : deadMansPedal(std::move(pedal))
 {
+#if JUCE_VERSION >= 0x80009 // 8.0.9 replaced the member function
+    juce::addDefaultFormatsToManager(formatManager);
+#else
     formatManager.addDefaultFormats();
+#endif
 }
 
 juce::FileSearchPath JucePluginHost::lv2SearchPath() const
@@ -225,8 +253,8 @@ std::vector<PluginInfo> JucePluginHost::scan(const std::function<bool(float, con
         }
     }
     for (auto& d : list.getTypes()) {
-        if (!d.isInstrument) continue;
         PluginInfo i;
+        i.isInstrument = d.isInstrument;
         i.format = d.pluginFormatName.toStdString();
         i.identifier = d.createIdentifierString().toStdString();
         i.name = d.name.toStdString();
@@ -262,7 +290,7 @@ std::unique_ptr<InstrumentPlugin> JucePluginHost::create(const PluginInfo& info,
     pinPluginModule(d->fileOrIdentifier, lv2SearchPath());
     auto inst = formatManager.createPluginInstance(*d, sr, bs, error);
     if (!inst) return nullptr;
-    auto p = std::make_unique<JuceInstrument>(std::move(inst), info.format);
+    auto p = std::make_unique<JuceInstrument>(std::move(inst), info.format, !info.isInstrument);
     p->prepare(sr, bs);
     return p;
 }

@@ -196,9 +196,7 @@ public:
     void mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w) override
     {
         // Ctrl+wheel / Shift+wheel act on the shared time axis, like in the piano roll.
-        if (e.x >= owner.cellsX() && e.mods.isCommandDown()) roll.zoomHorizontal(w.deltaY > 0 ? 1.15 : 1 / 1.15, e.x - owner.cellsX());
-        else if (e.x >= owner.cellsX() && e.mods.isShiftDown()) roll.scrollBy(-w.deltaY * 600 / roll.pxPerTick * 0.1, 0);
-        else juce::Component::mouseWheelMove(e, w); // scroll the panel
+        if (!roll.handleTimeWheel(e, w, e.x - owner.cellsX())) juce::Component::mouseWheelMove(e, w); // scroll the panel
     }
 
 private:

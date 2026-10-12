@@ -33,6 +33,16 @@ public:
     void zoomHorizontal(double factor, double anchorX);
     void zoomVertical(double factor, double anchorY);
     void scrollBy(double dxTicks, double dyPixels);
+    // Ctrl+wheel (zoom) / Shift+wheel (scroll) on the shared time axis, for lanes aligned with the
+    // grid (step sequencer, audio and MIDI lanes). laneX is the mouse x relative to the grid start.
+    // Returns false if not handled (e.g. over a track card): let the panel scroll then.
+    bool handleTimeWheel(const juce::MouseEvent& e, const juce::MouseWheelDetails& w, int laneX)
+    {
+        if (laneX < 0) return false;
+        if (e.mods.isCommandDown()) { zoomHorizontal(w.deltaY > 0 ? 1.15 : 1 / 1.15, laneX); return true; }
+        if (e.mods.isShiftDown()) { scrollBy(-(w.deltaY != 0 ? w.deltaY : w.deltaX) * 600 / pxPerTick * 0.1, 0); return true; }
+        return false;
+    }
     // Zoom around the centre of the visible grid (toolbar buttons / keys). The keyboard follows the row height.
     void zoomInH()  { zoomHorizontal(1.25, gridCentre().x); }
     void zoomOutH() { zoomHorizontal(1 / 1.25, gridCentre().x); }

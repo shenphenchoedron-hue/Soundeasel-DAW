@@ -171,8 +171,9 @@ juce::File builtinFile()
         const juce::File candidates[] = {
             app.getChildFile("Contents/Resources").getChildFile(kBuiltinSoundFontFile),          // macOS bundle
             exe.getParentDirectory().getChildFile(kBuiltinSoundFontFile),                       // Windows / Linux tarball
-            exe.getParentDirectory().getChildFile("../share/midi-composer").getChildFile(kBuiltinSoundFontFile),
-            juce::File("/usr/share/midi-composer").getChildFile(kBuiltinSoundFontFile),          // Debian package
+            exe.getParentDirectory().getChildFile("../share/soundeasel-daw").getChildFile(kBuiltinSoundFontFile),
+            juce::File("/usr/share/soundeasel-daw").getChildFile(kBuiltinSoundFontFile),         // Debian package
+            juce::File("/usr/share/midi-composer").getChildFile(kBuiltinSoundFontFile),          // MIDI Composer package
         };
         for (auto& c : candidates) if (c.existsAsFile()) return c;
         return juce::File();

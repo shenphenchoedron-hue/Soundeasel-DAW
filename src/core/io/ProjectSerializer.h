@@ -6,7 +6,7 @@
 
 namespace mc::io {
 
-inline constexpr int kProjectFormatVersion = 1;
+inline constexpr int kProjectFormatVersion = 2; // 2: audio tracks + Mains
 inline constexpr const char* kProjectMagic = "midicomposer-project";
 
 struct LoadResult {
@@ -18,8 +18,10 @@ struct LoadResult {
 
 class ProjectSerializer {
 public:
-    static std::string toString(const model::Project&);
-    static LoadResult fromString(const std::string&, model::Project& out);
+    // Audio file paths inside `baseDir` (the project's folder) are stored relative to it,
+    // and relative paths are resolved against it when loading.
+    static std::string toString(const model::Project&, const std::string& baseDir = {});
+    static LoadResult fromString(const std::string&, model::Project& out, const std::string& baseDir = {});
     static bool saveFile(const model::Project&, const std::string& path, std::string* error = nullptr);
     static LoadResult loadFile(const std::string& path, model::Project& out);
 };

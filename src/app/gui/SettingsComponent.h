@@ -22,7 +22,8 @@ private:
     juce::AudioDeviceSelectorComponent audioSelector;
     juce::Label midiLabel{{}, "MIDI input"}, mapLabel{{}, "Chord modifier keys"};
     juce::ComboBox midiInput;
-    juce::TextButton refreshBtn{"Refresh"}, resetBtn{"Defaults"};
+    juce::TextButton refreshBtn{"Refresh"}, resetBtn{"Defaults"}, testBtn{"Play test sound"};
+    juce::Label audioLabel{{}, "Sound device (output to speakers/headphones, inputs for audio tracks)"};
     struct MapRow {
         juce::Label name;
         juce::Slider note{juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft};

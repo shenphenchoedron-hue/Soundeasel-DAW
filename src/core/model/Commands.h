@@ -75,13 +75,14 @@ private:
 
 class AddTrackCommand : public Command {
 public:
-    explicit AddTrackCommand(std::string name = {}) : name_(std::move(name)) {}
+    explicit AddTrackCommand(std::string name = {}, TrackKind kind = TrackKind::Midi) : name_(std::move(name)), kind_(kind) {}
     void apply(Project&) override;
     void revert(Project&) override;
-    std::string name() const override { return "Add track"; }
+    std::string name() const override { return kind_ == TrackKind::Audio ? "Add audio track" : "Add track"; }
     TrackId trackId() const { return id_; }
 private:
     std::string name_;
+    TrackKind kind_;
     TrackId id_ = 0;
     std::unique_ptr<Track> stash_;
 };
@@ -106,6 +107,13 @@ struct TrackProperties {
     int channel = 0;
     std::uint32_t colour = 0;
     PluginReference plugin;
+    int input = 0;              // audio tracks
+    bool stereoInput = false;   // audio tracks
+    EqSettings eq;
+    CompressorSettings compressor;
+    ReverbSettings reverb;
+    std::vector<PluginReference> inserts;
+    bool insertsAfterBuiltins = false;
     static TrackProperties from(const Track&);
     void applyTo(Track&) const;
 };
@@ -120,6 +128,43 @@ public:
 private:
     TrackId id_;
     TrackProperties before_, after_;
+};
+
+// Replaces all clips of an audio track (add, move, trim, split, delete clips).
+class SetAudioClipsCommand : public Command {
+public:
+    SetAudioClipsCommand(TrackId t, std::vector<AudioClip> before, std::vector<AudioClip> after, std::string name = "Edit audio")
+        : track_(t), before_(std::move(before)), after_(std::move(after)), name_(std::move(name)) {}
+    void apply(Project& p) override { if (auto* t = p.audioTrack(track_)) t->setClips(after_); }
+    void revert(Project& p) override { if (auto* t = p.audioTrack(track_)) t->setClips(before_); }
+    std::string name() const override { return name_; }
+private:
+    TrackId track_;
+    std::vector<AudioClip> before_, after_;
+    std::string name_;
+};
+
+// Replaces the volume line (automation points) of an audio track.
+class SetVolumeAutomationCommand : public Command {
+public:
+    SetVolumeAutomationCommand(TrackId t, std::vector<AutomationPoint> before, std::vector<AutomationPoint> after)
+        : track_(t), before_(std::move(before)), after_(std::move(after)) {}
+    void apply(Project& p) override { if (auto* t = p.audioTrack(track_)) t->volumeAutomation = after_; }
+    void revert(Project& p) override { if (auto* t = p.audioTrack(track_)) t->volumeAutomation = before_; }
+    std::string name() const override { return "Edit volume line"; }
+private:
+    TrackId track_;
+    std::vector<AutomationPoint> before_, after_;
+};
+
+class SetMasterCommand : public Command {
+public:
+    SetMasterCommand(MasterBus before, MasterBus after) : before_(before), after_(after) {}
+    void apply(Project& p) override { p.master = after_; }
+    void revert(Project& p) override { p.master = before_; }
+    std::string name() const override { return "Change Mains"; }
+private:
+    MasterBus before_, after_;
 };
 
 // Several commands performed and undone as one step.

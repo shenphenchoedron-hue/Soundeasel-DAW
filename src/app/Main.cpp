@@ -8,7 +8,7 @@ namespace {
 class MainWindow final : public juce::DocumentWindow {
 public:
     explicit MainWindow(mc::AppContext& app)
-        : DocumentWindow("MIDI Composer", mc::gui::theme::col::appBg, DocumentWindow::allButtons)
+        : DocumentWindow("Soundeasel DAW", mc::gui::theme::col::appBg, DocumentWindow::allButtons)
     {
         setUsingNativeTitleBar(true);
         setIcon(mc::gui::theme::logoImage(256));
@@ -25,7 +25,7 @@ public:
     mc::gui::MainComponent* main = nullptr;
 };
 
-class MidiComposerApplication final : public juce::JUCEApplication {
+class SoundeaselApplication final : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return JUCE_APPLICATION_NAME_STRING; }
     const juce::String getApplicationVersion() override { return JUCE_APPLICATION_VERSION_STRING; }
@@ -41,6 +41,7 @@ public:
             juce::File f(arg);
             juce::String err;
             if (f.hasFileExtension("mid;midi")) context->importMidi(f, err);
+            else if (context->audioFiles.canRead(f)) context->importAudio(f, 0, 0, err);
             else if (f.existsAsFile()) context->openProject(f, err);
         }
     }
@@ -66,4 +67,4 @@ private:
 
 } // namespace
 
-START_JUCE_APPLICATION(MidiComposerApplication)
+START_JUCE_APPLICATION(SoundeaselApplication)

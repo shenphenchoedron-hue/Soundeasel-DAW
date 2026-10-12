@@ -21,6 +21,7 @@ Project& Project::operator=(const Project& o)
     loopStart = o.loopStart;
     loopEnd = o.loopEnd;
     harmony = o.harmony;
+    master = o.master;
     controllerMapping = o.controllerMapping;
     // listeners are intentionally not copied
     return *this;
@@ -50,6 +51,19 @@ MidiTrack& Project::addMidiTrack(const std::string& name)
     if (activeTrack == 0) activeTrack = id;
     return ref;
 }
+
+AudioTrack& Project::addAudioTrack(const std::string& name)
+{
+    int n = 1;
+    for (auto& t : tracks_) if (t->kind() == TrackKind::Audio) ++n;
+    const TrackId id = nextTrackId_++;
+    auto t = std::make_unique<AudioTrack>(id, name.empty() ? "Audio " + std::to_string(n) : name);
+    auto& ref = *t;
+    tracks_.push_back(std::move(t));
+    return ref;
+}
+
+AudioTrack* Project::audioTrack(TrackId id) const { return dynamic_cast<AudioTrack*>(track(id)); }
 
 void Project::insertTrack(int index, std::unique_ptr<Track> t)
 {

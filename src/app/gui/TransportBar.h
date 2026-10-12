@@ -10,6 +10,9 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void refreshPosition();
+    std::function<void()> onToggleMixer;
+    juce::Component& statusButton() { return statusBtn; } // placed by the main window (right of the chord bar)
+    void setMixerShown(bool b) { mixerBtn.setToggleState(b, juce::dontSendNotification); }
 
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
@@ -32,7 +35,7 @@ private:
     juce::ComboBox sigNum, sigDen;
     juce::Slider loopStartBar{juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft};
     juce::Slider loopEndBar{juce::Slider::IncDecButtons, juce::Slider::TextBoxLeft};
-    juce::TextButton undoBtn{"Undo"}, redoBtn{"Redo"};
+    juce::TextButton undoBtn{"Undo"}, redoBtn{"Redo"}, mixerBtn{"Mixer"}, statusBtn;
     std::unique_ptr<juce::Drawable> logo;
     juce::Rectangle<float> logoArea;
     std::vector<int> separators;

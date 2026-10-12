@@ -143,6 +143,68 @@ void MidiTrack::regenerateStepNotes()
         }
 }
 
+float automationAt(const std::vector<AutomationPoint>& pts, double tick)
+{
+    if (pts.empty()) return 1.0f;
+    if (tick <= (double)pts.front().tick) return pts.front().gain;
+    if (tick >= (double)pts.back().tick) return pts.back().gain;
+    auto it = std::upper_bound(pts.begin(), pts.end(), tick, [](double t, const AutomationPoint& p) { return t < (double)p.tick; });
+    const auto& b = *it;
+    const auto& a = *(it - 1);
+    if (b.tick == a.tick) return b.gain;
+    const double f = (tick - (double)a.tick) / (double)(b.tick - a.tick);
+    return (float)(a.gain + (b.gain - a.gain) * f);
+}
+
+void normalizeAutomation(std::vector<AutomationPoint>& pts)
+{
+    for (auto& p : pts) { p.tick = std::max<Tick>(0, p.tick); p.gain = std::clamp(p.gain, 0.0f, 2.0f); }
+    std::stable_sort(pts.begin(), pts.end(), [](const AutomationPoint& a, const AutomationPoint& b) { return a.tick < b.tick; });
+}
+
+void assignInsertIds(std::vector<PluginReference>& v)
+{
+    std::uint64_t next = 1;
+    for (auto& r : v) next = std::max(next, r.uid + 1);
+    for (auto& r : v) if (r.uid == 0) r.uid = next++;
+}
+
+double AudioClip::end(double bpm) const
+{
+    return (double)start + length * bpm / 60.0 * kPPQ;
+}
+
+void AudioTrack::setClips(std::vector<AudioClip> c)
+{
+    clips_.clear();
+    for (auto& x : c) addClip(std::move(x));
+}
+
+ClipId AudioTrack::addClip(AudioClip c)
+{
+    if (c.id == 0 || findClip(c.id)) c.id = nextId_;
+    nextId_ = std::max(nextId_, c.id + 1);
+    c.start = std::max<Tick>(0, c.start);
+    c.offset = std::max(0.0, c.offset);
+    c.length = std::max(0.0, c.length);
+    c.gain = std::clamp(c.gain, 0.0f, 8.0f);
+    const auto id = c.id;
+    clips_.push_back(std::move(c));
+    std::stable_sort(clips_.begin(), clips_.end(), [](const AudioClip& a, const AudioClip& b) { return a.start < b.start; });
+    return id;
+}
+
+bool AudioTrack::removeClip(ClipId id)
+{
+    return std::erase_if(clips_, [id](const AudioClip& c) { return c.id == id; }) > 0;
+}
+
+const AudioClip* AudioTrack::findClip(ClipId id) const
+{
+    for (auto& c : clips_) if (c.id == id) return &c;
+    return nullptr;
+}
+
 void MidiTrack::sort()
 {
     std::stable_sort(notes_.begin(), notes_.end(), [](const Note& a, const Note& b) {

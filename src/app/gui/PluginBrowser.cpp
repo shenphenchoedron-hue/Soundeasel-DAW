@@ -53,14 +53,14 @@ private:
 
 class BrowserWindow final : public juce::DocumentWindow {
 public:
-    BrowserWindow(AppContext& app, PluginBrowser::Choose choose)
-        : DocumentWindow("Instrument plugins", theme::col::appBg, closeButton)
+    BrowserWindow(AppContext& app, PluginBrowser::Choose choose, bool effects)
+        : DocumentWindow(effects ? "Effect plugins" : "Instrument plugins", theme::col::appBg, closeButton)
     {
         setUsingNativeTitleBar(true);
         setContentOwned(new PluginBrowser(app, [this, choose](const plugins::PluginInfo& i) {
             choose(i);
             closeButtonPressed();
-        }), false);
+        }, effects), false);
         setResizable(true, true);
         centreWithSize(720, 480);
         setVisible(true);
@@ -80,9 +80,9 @@ void PluginBrowser::rescanWithProgress(AppContext& app, std::function<void()> do
     (new ScanThread(app, std::move(done)))->launch();
 }
 
-void PluginBrowser::show(AppContext& app, Choose onChoose) { new BrowserWindow(app, std::move(onChoose)); }
+void PluginBrowser::show(AppContext& app, Choose onChoose, bool effects) { new BrowserWindow(app, std::move(onChoose), effects); }
 
-PluginBrowser::PluginBrowser(AppContext& a, Choose c) : app(a), onChoose(std::move(c))
+PluginBrowser::PluginBrowser(AppContext& a, Choose c, bool fx) : app(a), onChoose(std::move(c)), effects(fx)
 {
     formatFilter.addItem("All formats", 1);
     int id = 2;
@@ -139,6 +139,7 @@ void PluginBrowser::refilter()
     const auto fmt = formatFilter.getSelectedId() > 1 ? formatFilter.getText() : juce::String();
     const auto q = search.getText().trim();
     for (auto& p : app.plugins->plugins()) {
+        if (p.isInstrument == effects) continue;
         if (fmt.isNotEmpty() && fmt != juce::String(p.format)) continue;
         if (q.isNotEmpty() && !juce::String(p.name).containsIgnoreCase(q) && !juce::String(p.manufacturer).containsIgnoreCase(q)) continue;
         filtered.push_back(p);
@@ -150,8 +151,10 @@ void PluginBrowser::refilter()
         const int c = juce::String(key(a)).compareIgnoreCase(juce::String(key(b)));
         return sortForward ? c < 0 : c > 0;
     });
-    status.setText(juce::String((int)filtered.size()) + " instruments" +
-                   (app.plugins->hasCache() ? "" : "  (not scanned yet - click Rescan)"), juce::dontSendNotification);
+    juce::String note;
+    if (!app.plugins->hasCache()) note = "  (not scanned yet - click Rescan)";
+    else if (effects && !app.plugins->effectsScanned()) note = "  (effects are found by a new scan - click Rescan)";
+    status.setText(juce::String((int)filtered.size()) + (effects ? " effects" : " instruments") + note, juce::dontSendNotification);
     table.updateContent();
     table.repaint();
 }

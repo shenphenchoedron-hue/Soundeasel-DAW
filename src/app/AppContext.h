@@ -2,6 +2,7 @@
 // Application controller: owns the model and all services and wires them
 // together. GUI components talk to this, never to each other's data.
 #include "audio/AudioEngine.h"
+#include "audio/AudioFileCache.h"
 #include "input/ChordInputProcessor.h"
 #include "midi/MidiDeviceManager.h"
 #include "model/Commands.h"
@@ -15,7 +16,7 @@
 
 namespace mc {
 
-class AppContext final : public juce::ChangeBroadcaster {
+class AppContext final : public juce::ChangeBroadcaster, private juce::ChangeListener {
 public:
     AppContext();
     ~AppContext() override;
@@ -28,6 +29,7 @@ public:
     std::unique_ptr<plugins::PluginManager> plugins;
     std::unique_ptr<midi::MidiDeviceManager> midiDevices;
     recording::Recorder recorder;
+    audio::AudioFileCache audioFiles;
     std::vector<model::Note> clipboard; // starts relative to 0
 
     // ---- project files
@@ -50,6 +52,51 @@ public:
     void selectTrack(model::TrackId);
     model::MidiTrack* activeMidiTrack() const { return project.midiTrack(project.activeTrack); }
     void setTrackPlugin(model::TrackId, const plugins::PluginInfo*); // nullptr = remove
+    // Undoable change of a track's properties (name, mute, solo, volume, pan, input, ...).
+    void changeTrack(model::TrackId, const std::function<void(model::TrackProperties&)>& edit);
+    // Live volume/pan gestures (fader drags): heard immediately, one undo step at the end,
+    // none if nothing changed.
+    void beginTrackEdit(model::TrackId);
+    void liveTrackVolume(model::TrackId, float gain);
+    void liveTrackPan(model::TrackId, float pan);
+    void endTrackEdit(model::TrackId);
+    bool isEditingTrack(model::TrackId id) const { return trackEdits.count(id) > 0; }
+
+    // ---- audio tracks
+    model::TrackId addAudioTrack(const std::string& name = {});  // returns the new track id
+    // Imports an audio file as a clip at `at`. track == 0 creates a new audio track.
+    bool importAudio(const juce::File&, model::TrackId track, model::Tick at, juce::String& error);
+    void setAudioClips(model::TrackId, std::vector<model::AudioClip> after, const std::string& name = "Edit audio");
+    void setTrackArmed(model::TrackId, bool);     // record enable (not undoable)
+    void setTrackMonitor(model::TrackId, bool);   // hear the input (not undoable)
+    void setVolumeAutomation(model::TrackId, std::vector<model::AutomationPoint> after); // undoable
+    void setShowVolumeLine(model::TrackId, bool); // show/edit the volume line in the lane
+    void setTrackInput(model::TrackId, int input, bool stereo);
+    juce::StringArray inputNames() const;         // active inputs of the audio device, index = AudioTrack::input
+    std::shared_ptr<const audio::AudioFileData> audioFile(const std::string& path); // nullptr while loading or missing
+    bool isAudioFileLoading(const std::string& path) const { return audioFiles.isLoading(path); }
+    juce::File audioFolder() const;               // new recordings go here ("<project> Audio" next to the project)
+    std::vector<model::AudioTrack*> audioTracks() const;
+
+    // ---- Mains (master bus)
+    void setMaster(const model::MasterBus& before, const model::MasterBus& after); // undoable
+    void setMasterLive(const model::MasterBus&);  // while dragging, no undo
+
+    // ---- audio device status ("does my sound work?")
+    bool audioOutputOk() const;
+    // Mains always plays on a stereo pair of the sound device.
+    bool isStereoOutput() const { return engine->numOutputChannels() >= 2; }
+    juce::StringArray mainsOutputPairs() const;   // "Out 1+2", "Out 3+4", ... (index = pair)
+    int mainsOutputPair() const;                  // -1 if unknown
+    void setMainsOutputPair(int pair, bool userChoice = true);
+    // The user picked the sound device (settings window): from now on it is saved again.
+    void userChoseAudioDevice() { deviceFellBack = false; }
+    juce::String audioStatusText() const;
+    void playTestTone() { engine->playTestTone(); }
+
+    // ---- meters: polled once per UI frame, read by every view (track cards, mixer)
+    void pollLevels();
+    audio::AudioEngine::Levels levels(model::TrackId id) const; // id 0 = Mains
 
     // ---- step sequencer (a group of MidiTracks, one per line)
     void addStepSequencer();                       // new group with one line, becomes active
@@ -61,6 +108,16 @@ public:
     void setStepPatterns(std::vector<model::SetStepPatternsCommand::Entry> after, const std::string& name = "Edit steps");
     void setTrackBypass(model::TrackId, bool);
     void openPluginEditor(model::TrackId);
+
+    // ---- effect plugins on channel strips (undoable)
+    void addInsert(model::TrackId, const plugins::PluginInfo&);
+    void replaceInsert(model::TrackId, int index, const plugins::PluginInfo&);
+    void removeInsert(model::TrackId, int index);
+    void moveInsert(model::TrackId, int from, int to);
+    void setInsertBypass(model::TrackId, int index, bool);
+    void setInsertsAfterBuiltins(model::TrackId, bool);
+    void openInsertEditor(model::TrackId, int index);
+    juce::String insertError(model::TrackId, int index) const; // empty: loaded fine
     bool isPluginMissing(model::TrackId id) const { return missing.count(id) > 0; }
     juce::String pluginError(model::TrackId id) const;
 
@@ -68,7 +125,7 @@ public:
     void play();
     void stop();
     void toggleRecord();
-    bool isRecording() const { return recorder.isRecording(); }
+    bool isRecording() const { return recorder.isRecording() || (engine && engine->isRecordingAudio()); }
     void returnToStart();
     void setPosition(model::Tick);
     void setTempo(double bpm);
@@ -107,6 +164,13 @@ public:
     bool snapEnabled = true;
 
 private:
+    void changeListenerCallback(juce::ChangeBroadcaster*) override; // audio device changed
+    bool startAudioRecording();
+    void finishAudioRecording(std::vector<std::unique_ptr<model::Command>>& cmds);
+    void collectAudioFiles(const juce::File& projectFile);
+    void ensureStereoOutput();
+    bool changingDevice = false;
+    bool deviceFellBack = false; // the saved device could not be opened: the default device is used, not saved
     void onModelChanged();
     void syncEngine();
     void addImportedTracks(const model::Project& imported); // undoable; adopts tempo + time signature
@@ -114,6 +178,17 @@ private:
     void handleMidi(const juce::MidiMessage&);
     void sendLive(const std::vector<input::OutputEvent>&);
     void closeEditor(model::TrackId);
+    void syncInserts(model::Track&);
+    void clearInserts(model::TrackId);
+    void prepareToRemove(model::TrackId); // instrument + effects of a track, before its engine slot goes   // after the engine slot is gone or its inserts were reset
+    void captureInsertStates(model::Track&);
+    void editInserts(model::TrackId, const std::function<void(std::vector<model::PluginReference>&)>&);
+
+    std::map<model::TrackId, audio::AudioEngine::Levels> lastLevels;
+    std::map<model::TrackId, model::TrackProperties> trackEdits; // volume/pan gestures in progress
+    struct Take { model::TrackId track; juce::File file; };
+    std::vector<Take> takes;
+    juce::TimeSliceThread diskThread{"Audio recording"};
 
     mutable std::mutex chordMutex;
     input::ChordInputProcessor chordInput;
@@ -124,6 +199,13 @@ private:
     std::set<model::TrackId> missing;
     std::map<model::TrackId, juce::String> errors;
     std::map<model::TrackId, std::unique_ptr<juce::DocumentWindow>> editorWindows;
+    struct InsertInstance {
+        model::PluginReference ref;
+        std::unique_ptr<plugins::InstrumentPlugin> plugin; // nullptr: missing / failed (see error)
+        juce::String error;
+    };
+    std::map<model::TrackId, std::vector<InsertInstance>> inserts;
+    std::map<plugins::InstrumentPlugin*, std::unique_ptr<juce::DocumentWindow>> insertEditors;
     int listenerHandle = 0;
     model::TrackId lastPianoTrack = 0;
     bool metronomeOn = false;

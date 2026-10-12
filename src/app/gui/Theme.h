@@ -88,7 +88,9 @@ public:
 
     void drawLinearSlider(juce::Graphics&, int x, int y, int w, int h, float pos, float minPos, float maxPos,
                           juce::Slider::SliderStyle, juce::Slider&) override;
+    void drawRotarySlider(juce::Graphics&, int x, int y, int w, int h, float pos, float startAngle, float endAngle, juce::Slider&) override;
     juce::Label* createSliderTextBox(juce::Slider&) override;
+    int getSliderThumbRadius(juce::Slider& s) override { return s.getSliderStyle() == juce::Slider::LinearVertical ? 8 : LookAndFeel_V4::getSliderThumbRadius(s); }
     juce::Slider::SliderLayout getSliderLayout(juce::Slider&) override;
 
     void drawScrollbar(juce::Graphics&, juce::ScrollBar&, int x, int y, int w, int h, bool vertical, int thumbStart,

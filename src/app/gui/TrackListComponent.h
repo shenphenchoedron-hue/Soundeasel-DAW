@@ -14,6 +14,7 @@ public:
     ~TrackListComponent() override;
     void resized() override;
     void paint(juce::Graphics&) override;
+    void refreshMeters(); // UI timer
 
     class Row;
 private:

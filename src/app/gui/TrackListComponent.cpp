@@ -2,13 +2,15 @@
 #include "gui/PluginBrowser.h"
 #include "plugins/BasicSynth.h"
 #include "plugins/SoundFontPlayer.h"
+#include "gui/LevelMeter.h"
 #include "gui/Theme.h"
+#include "gui/TrackSliders.h"
 #include <algorithm>
 
 namespace mc::gui {
 
 namespace {
-constexpr int kRowHeight = 80;
+constexpr int kRowHeight = 90;
 
 // Track colour picker shown in a call-out: colour field + sliders, preset
 // palette and user swatches (saved in the user settings, not the project).
@@ -174,6 +176,7 @@ void showInstrumentMenu(AppContext& app, model::TrackId id, juce::Component& tar
     std::map<std::string, juce::PopupMenu> groups, files, byFormat;
     for (size_t i = 0; i < list.size(); ++i) {
         const auto& p = list[i];
+        if (!p.isInstrument) continue;
         const int itemId = (int)i + 1000;
         if (p.format == plugins::InternalPluginHost::kFormat) {
             if (p.category == "Rock" || p.category == "Pop" || p.category == "Jazz")
@@ -223,8 +226,9 @@ class TrackListComponent::Row final : public juce::Component {
 public:
     Row(AppContext& a, model::TrackId i) : app(a), id(i)
     {
-        for (juce::Component* c : std::initializer_list<juce::Component*>{&colourBtn, &name, &mute, &solo, &volume, &pan, &channel, &pluginBtn, &editBtn})
+        for (juce::Component* c : std::initializer_list<juce::Component*>{&colourBtn, &name, &mute, &solo, &volume, &pan, &channel, &pluginBtn, &editBtn, &meter})
             addAndMakeVisible(c);
+        meter.setTooltip("Track level: moves when this track makes sound. Red: the signal clipped - click to reset");
         name.setEditable(false, true);
         name.setFont(theme::uiFont(14.0f, true));
         name.setColour(juce::Label::textColourId, theme::col::text);
@@ -239,27 +243,14 @@ public:
         mute.onClick = [this] { change([&](auto& p) { p.mute = mute.getToggleState(); }); };
         solo.onClick = [this] { change([&](auto& p) { p.solo = solo.getToggleState(); }); };
 
-        volume.setRange(0, 1, 0.01);
+        fader::setup(volume);
         volume.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         volume.setTooltip("Volume");
         pan.setRange(-1, 1, 0.01);
         pan.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
         pan.setTooltip("Pan");
         pan.setDoubleClickReturnValue(true, 0.0);
-        for (auto* s : {&volume, &pan}) {
-            s->onDragStart = [this] { if (auto* t = app.project.track(id)) dragBefore = model::TrackProperties::from(*t); };
-            s->onValueChange = [this] { // live, without undo
-                if (auto* t = app.project.track(id)) { t->volume = (float)volume.getValue(); t->pan = (float)pan.getValue(); app.modelChangedWithoutUndo(); }
-            };
-            s->onDragEnd = [this] {
-                if (auto* t = app.project.track(id); t && dragBefore) {
-                    auto after = model::TrackProperties::from(*t);
-                    dragBefore->applyTo(*t);
-                    app.undo.perform(std::make_unique<model::SetTrackPropertiesCommand>(id, *dragBefore, after));
-                }
-                dragBefore.reset();
-            };
-        }
+        connectTrackSliders(app, id, volume, pan);
 
         for (int c = 1; c <= 16; ++c) channel.addItem("Ch " + juce::String(c), c);
         channel.onChange = [this] { change([&](auto& p) { p.channel = channel.getSelectedId() - 1; }); };
@@ -279,7 +270,7 @@ public:
         name.setText(t->name, juce::dontSendNotification);
         mute.setToggleState(t->mute, juce::dontSendNotification);
         solo.setToggleState(t->solo, juce::dontSendNotification);
-        volume.setValue(t->volume, juce::dontSendNotification);
+        volume.setValue(fader::gainToDb(t->volume), juce::dontSendNotification);
         pan.setValue(t->pan, juce::dontSendNotification);
         channel.setSelectedId(t->channel + 1, juce::dontSendNotification);
         const bool missing = app.isPluginMissing(id);
@@ -337,6 +328,8 @@ public:
         pan.setBounds(l2.removeFromRight(72));
         l2.removeFromRight(gap);
         volume.setBounds(l2);
+        r.removeFromTop(3);
+        meter.setBounds(r.removeFromTop(6).withTrimmedLeft(6).withTrimmedRight(80));
         r.removeFromTop(gapS);
         auto l3 = r.removeFromTop(22);
         editBtn.setBounds(l3.removeFromRight(30));
@@ -345,6 +338,7 @@ public:
     }
 
     void mouseDown(const juce::MouseEvent&) override { app.selectTrack(id); }
+    void updateMeter() { const auto l = app.levels(id); meter.push(l.left, l.right); }
 
 private:
     template <typename F> void change(F&& f)
@@ -387,12 +381,12 @@ private:
     bool active = false;
     std::uint32_t colour = 0;
     Swatch colourBtn;
-    std::optional<model::TrackProperties> dragBefore;
     juce::Label name;
     juce::TextButton mute{"M"}, solo{"S"}, pluginBtn, editBtn{"E"};
     juce::Slider volume{juce::Slider::LinearHorizontal, juce::Slider::NoTextBox};
     juce::Slider pan{juce::Slider::LinearHorizontal, juce::Slider::NoTextBox};
     juce::ComboBox channel;
+    LevelMeter meter{false, true};
 public:
     model::TrackId trackId() const { return id; }
 };
@@ -404,17 +398,19 @@ TrackListComponent::TrackListComponent(AppContext& a) : app(a)
     addAndMakeVisible(viewport);
     viewport.setViewedComponent(&content, false);
     viewport.setScrollBarsShown(true, false);
-    addBtn.setTooltip("Add a piano roll track or a step sequencer track");
+    addBtn.setTooltip("Add an instrument (piano roll), step sequencer or audio track");
     addBtn.onClick = [this] {
         juce::PopupMenu m;
         m.addSectionHeader("New track");
-        m.addItem(1, "Piano roll");
-        m.addItem(2, "Step sequencer");
+        m.addItem(1, "Instrument (piano roll)");
+        m.addItem(2, "Step sequencer (drums / patterns)");
+        m.addItem(3, "Audio track (record or import audio)");
         juce::Component::SafePointer<TrackListComponent> self(this);
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addBtn), [self](int r) {
             if (!self) return;
             if (r == 1) self->app.addTrack();
             else if (r == 2) self->app.addStepSequencer();
+            else if (r == 3) self->app.addAudioTrack();
         });
     };
     delBtn.onClick = [this] {
@@ -455,6 +451,11 @@ void TrackListComponent::resized()
 }
 
 void TrackListComponent::changeListenerCallback(juce::ChangeBroadcaster*) { rebuild(); }
+
+void TrackListComponent::refreshMeters()
+{
+    for (auto& r : rows) r->updateMeter();
+}
 
 void TrackListComponent::rebuild()
 {

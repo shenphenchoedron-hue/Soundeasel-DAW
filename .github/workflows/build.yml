@@ -22,14 +22,14 @@ jobs:
         include:
           - name: Windows
             os: windows-latest
-            artifact: MIDI-Composer-Windows-x64
+            artifact: Soundeasel-DAW-Windows-x64
           - name: macOS (Universal - Intel + Apple Silicon)
             os: macos-14
-            artifact: MIDI-Composer-macOS-Universal
+            artifact: Soundeasel-DAW-macOS-Universal
             cmake_extra: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
           - name: Ubuntu
             os: ubuntu-22.04
-            artifact: MIDI-Composer-Ubuntu-x64
+            artifact: Soundeasel-DAW-Ubuntu-x64
 
     steps:
       - uses: actions/checkout@v4
@@ -62,20 +62,20 @@ jobs:
       - name: Package
         shell: bash
         run: |
-          ART=build/src/app/MidiComposer_artefacts/Release
+          ART=build/src/app/SoundeaselDAW_artefacts/Release
           mkdir -p dist
           if [ "$RUNNER_OS" == "Windows" ]; then
-            7z a "dist/${{ matrix.artifact }}.zip" "./$ART/MIDI Composer.exe" "./$ART/GeneralUser-GS.sf2" "./$ART/GeneralUser-GS-LICENSE.txt" "./$ART/MIDI-Composer-Manual.pdf" README.md LICENSE
+            7z a "dist/${{ matrix.artifact }}.zip" "./$ART/Soundeasel DAW.exe" "./$ART/GeneralUser-GS.sf2" "./$ART/GeneralUser-GS-LICENSE.txt" "./$ART/MIDI-Composer-Manual.pdf" README.md LICENSE
           elif [ "$RUNNER_OS" == "macOS" ]; then
-            lipo -info "$ART/MIDI Composer.app/Contents/MacOS/MIDI Composer"
-            test -f "$ART/MIDI Composer.app/Contents/Resources/GeneralUser-GS.sf2"
-            test -f "$ART/MIDI Composer.app/Contents/Resources/MIDI-Composer-Manual.pdf"
-            ditto -c -k --keepParent "$ART/MIDI Composer.app" "dist/${{ matrix.artifact }}.zip"
+            lipo -info "$ART/Soundeasel DAW.app/Contents/MacOS/Soundeasel DAW"
+            test -f "$ART/Soundeasel DAW.app/Contents/Resources/GeneralUser-GS.sf2"
+            test -f "$ART/Soundeasel DAW.app/Contents/Resources/MIDI-Composer-Manual.pdf"
+            ditto -c -k --keepParent "$ART/Soundeasel DAW.app" "dist/${{ matrix.artifact }}.zip"
           else
-            mkdir -p pkg/MIDI-Composer
-            cp "$ART/MIDI Composer" "$ART/GeneralUser-GS.sf2" "$ART/GeneralUser-GS-LICENSE.txt" "$ART/MIDI-Composer-Manual.pdf" README.md LICENSE pkg/MIDI-Composer/
-            cp resources/icon.png pkg/MIDI-Composer/
-            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C pkg MIDI-Composer
+            mkdir -p pkg/Soundeasel-DAW
+            cp "$ART/Soundeasel DAW" "$ART/GeneralUser-GS.sf2" "$ART/GeneralUser-GS-LICENSE.txt" "$ART/MIDI-Composer-Manual.pdf" README.md LICENSE pkg/Soundeasel-DAW/
+            cp resources/icon.png pkg/Soundeasel-DAW/
+            tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C pkg Soundeasel-DAW
           fi
 
       - uses: actions/upload-artifact@v4
@@ -108,7 +108,7 @@ jobs:
           scripts/make-deb.sh "$VERSION" dist
       - uses: actions/upload-artifact@v4
         with:
-          name: MIDI-Composer-Debian-deb
+          name: Soundeasel-DAW-Debian-deb
           path: dist/*.deb
 
   release:

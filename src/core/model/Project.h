@@ -14,6 +14,14 @@ struct TimeSignature {
     bool operator==(const TimeSignature&) const = default;
 };
 
+// The main output bus ("Mains") every track is mixed into.
+struct MasterBus {
+    float volume = 1.0f;   // linear gain 0..2
+    float balance = 0.0f;  // stereo balance -1 (left) .. 1 (right)
+    bool mute = false;
+    bool operator==(const MasterBus&) const = default;
+};
+
 struct HarmonySettings {
     int root = 9;                         // pitch class, A
     std::string scaleId = "natural_minor";
@@ -32,6 +40,8 @@ public:
     MidiTrack* midiTrack(TrackId id) const;
     int indexOf(TrackId id) const;
     MidiTrack& addMidiTrack(const std::string& name = {});
+    AudioTrack& addAudioTrack(const std::string& name = {});
+    AudioTrack* audioTrack(TrackId id) const;
     void insertTrack(int index, std::unique_ptr<Track> t);  // used by undo
     std::unique_ptr<Track> removeTrack(TrackId id);
     TrackId nextTrackId() const { return nextTrackId_; }
@@ -46,6 +56,7 @@ public:
     Tick loopStart = 0;
     Tick loopEnd = 4 * 4 * kPPQ;
     HarmonySettings harmony;
+    MasterBus master;
     input::ControllerMapping controllerMapping;
 
     // ---- change notification (UI observes the model; model never knows the UI)

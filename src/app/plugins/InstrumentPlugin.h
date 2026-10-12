@@ -1,6 +1,7 @@
 #pragma once
-// Format-agnostic instrument interface. Tracks, sequencer and engine only ever
-// see this; VST3/AU/LV2/CLAP details live in concrete hosts.
+// Format-agnostic plugin interface (instruments and audio effects). Tracks,
+// sequencer and engine only ever see this; VST3/AU/LV2/CLAP details live in
+// concrete hosts.
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <memory>
 #include <string>
@@ -15,6 +16,7 @@ struct PluginInfo {
     std::string manufacturer;
     std::string category;
     std::string hostData;      // opaque, host specific (e.g. JUCE PluginDescription XML)
+    bool isInstrument = true;  // false: audio effect (used as an insert on a channel strip)
 };
 
 class InstrumentPlugin {
@@ -29,10 +31,15 @@ public:
     virtual void release() = 0;
     virtual bool hasEditor() const = 0;
     virtual juce::Component* createEditor() = 0;   // caller owns the returned component
+    // Message thread, while the plugin is still being processed by the audio thread and
+    // just before it is taken out of the engine (lets e.g. CLAP plugins stop processing
+    // on the audio thread, as their spec requires).
+    virtual void prepareToRemove() {}
     virtual juce::MemoryBlock getState() = 0;
     virtual void setState(const juce::MemoryBlock&) = 0;
 
-    // Audio thread. `audio` is cleared, has >= 2 channels; must not allocate.
+    // Audio thread; must not allocate. `audio` has >= 2 channels. Instruments get a
+    // cleared buffer; effects get the track's audio and process it in place.
     virtual void process(juce::AudioBuffer<float>& audio, juce::MidiBuffer& midi) = 0;
 };
 

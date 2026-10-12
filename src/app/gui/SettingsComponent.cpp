@@ -31,9 +31,14 @@ void SettingsComponent::show(AppContext& app)
 }
 
 SettingsComponent::SettingsComponent(AppContext& a)
-    : app(a), audioSelector(a.deviceManager, 0, 0, 2, 2, false, false, true, false)
+    : app(a), audioSelector(a.deviceManager, 0, 16, 2, 2, false, false, true, false)
 {
     addAndMakeVisible(audioSelector);
+    addAndMakeVisible(audioLabel);
+    addAndMakeVisible(testBtn);
+    audioLabel.setFont(theme::uiFont(14.0f, true));
+    testBtn.setTooltip("Plays a short beep. If you hear it, your sound output works.");
+    testBtn.onClick = [this] { app.playTestTone(); };
     for (juce::Component* c : std::initializer_list<juce::Component*>{&midiLabel, &midiInput, &refreshBtn, &mapLabel, &resetBtn}) addAndMakeVisible(c);
     mapLabel.setFont(theme::uiFont(14.0f, true));
     refreshBtn.onClick = [this] { refreshMidiInputs(); };
@@ -65,12 +70,13 @@ SettingsComponent::SettingsComponent(AppContext& a)
     refreshMidiInputs();
     refreshMapping();
     app.addChangeListener(this);
-    setSize(560, 640);
+    setSize(600, 760);
 }
 
 SettingsComponent::~SettingsComponent()
 {
     app.removeChangeListener(this);
+    app.userChoseAudioDevice();
     if (auto xml = app.deviceManager.createStateXml()) app.settings.setAudioDeviceState(xml.get());
 }
 
@@ -79,7 +85,10 @@ void SettingsComponent::paint(juce::Graphics& g) { g.fillAll(theme::col::panel);
 void SettingsComponent::resized()
 {
     auto r = getLocalBounds().reduced(10);
-    audioSelector.setBounds(r.removeFromTop(300));
+    auto a = r.removeFromTop(26);
+    testBtn.setBounds(a.removeFromRight(140));
+    audioLabel.setBounds(a);
+    audioSelector.setBounds(r.removeFromTop(390));
     r.removeFromTop(10);
     auto m = r.removeFromTop(26);
     midiLabel.setBounds(m.removeFromLeft(90));

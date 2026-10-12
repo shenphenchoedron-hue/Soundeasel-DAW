@@ -1,7 +1,9 @@
 #pragma once
-// Track model. Track is the generic base; MidiTrack is implemented now,
-// AudioTrack exists as a placeholder so audio recording can be added later.
+// Track model. Track is the generic base; MidiTrack holds notes (piano roll and
+// step sequencer lines), AudioTrack holds audio clips and its recording input.
+#include "model/Effects.h"
 #include "model/Note.h"
+#include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
@@ -11,6 +13,21 @@ namespace mc::model {
 using TrackId = std::uint64_t;
 
 enum class TrackKind { Midi, Audio };
+
+// Format-agnostic reference to a plugin (instrument or effect). The track only stores
+// what is needed to restore the plugin; the plugin host layer interprets it.
+struct PluginReference {
+    std::string format;        // "VST3", "AudioUnit", "LV2", "CLAP", ... (opaque to the model)
+    std::string identifier;    // host-specific unique id / path
+    std::string name;
+    std::string manufacturer;
+    std::string stateBase64;   // opaque plugin state
+    bool bypassed = false;
+    std::uint64_t uid = 0;     // effect slots: stable id within the track (tells two copies of one plugin apart)
+
+    bool empty() const { return identifier.empty(); }
+    bool sameType(const PluginReference& o) const { return format == o.format && identifier == o.identifier; }
+};
 
 class Track {
 public:
@@ -27,23 +44,20 @@ public:
     float volume = 0.8f;   // linear gain 0..1
     float pan = 0.0f;      // -1..1
     std::uint32_t colour = 0; // 0xAARRGGBB for the track header, 0 = default theme colour
+    EqSettings eq;                 // built-in channel strip effects (off by default)
+    CompressorSettings compressor;
+    ReverbSettings reverb;
+    // Effect plugins on the channel strip, in processing order.
+    std::vector<PluginReference> inserts;
+    bool insertsAfterBuiltins = false; // false: plugins -> EQ/comp/reverb, true: EQ/comp/reverb -> plugins
 
 protected:
     TrackId id_;
 };
 
-// Format-agnostic reference to an instrument plugin. The track only stores
-// what is needed to restore the plugin; the plugin host layer interprets it.
-struct PluginReference {
-    std::string format;        // "VST3", "AudioUnit", "LV2", "CLAP", ... (opaque to the model)
-    std::string identifier;    // host-specific unique id / path
-    std::string name;
-    std::string manufacturer;
-    std::string stateBase64;   // opaque plugin state
-    bool bypassed = false;
 
-    bool empty() const { return identifier.empty(); }
-};
+// Gives every insert without an id one that is unique within the list.
+void assignInsertIds(std::vector<PluginReference>&);
 
 // Step sequencer line. A step sequencer is a group of MidiTracks sharing the
 // same stepGroup id; every track is one line with its own instrument. The
@@ -101,11 +115,61 @@ private:
     NoteId nextId_ = 1;
 };
 
+using ClipId = std::uint64_t;
+
+// A region of an audio file placed on the timeline. Audio is not time-stretched:
+// the clip starts at a musical position, its content is measured in seconds.
+struct AudioClip {
+    ClipId id = 0;
+    std::string file;        // absolute path (relative paths are resolved against the project folder on load)
+    std::string name;
+    Tick start = 0;          // timeline position
+    double offset = 0.0;     // seconds into the file where the clip starts
+    double length = 0.0;     // seconds
+    float gain = 1.0f;       // linear clip gain
+
+    double end(double bpm) const;  // end position in ticks (fractional) at the given tempo
+    bool operator==(const AudioClip&) const = default;
+};
+
+// A point of an automation line (e.g. the volume line of an audio track).
+struct AutomationPoint {
+    Tick tick = 0;
+    float gain = 1.0f;   // linear, 0 .. 2 (+6 dB)
+    bool operator==(const AutomationPoint&) const = default;
+};
+// Value of an automation line at `tick`: linear between points, flat before the
+// first and after the last point. 1.0 (no change) when there are no points.
+float automationAt(const std::vector<AutomationPoint>&, double tick);
+// Sorts by tick and clamps gains (points must stay in time order).
+void normalizeAutomation(std::vector<AutomationPoint>&);
+
 class AudioTrack final : public Track {
 public:
     using Track::Track;
     TrackKind kind() const override { return TrackKind::Audio; }
     std::unique_ptr<Track> clone() const override { return std::make_unique<AudioTrack>(*this); }
+
+    // Recording input: index into the active input channels of the audio device.
+    int input = 0;            // -1 = no input
+    bool stereoInput = false; // records input and input + 1
+    // Not undoable, but saved with the project.
+    bool armed = false;       // record enable
+    bool monitor = false;     // hear the input through the track
+    bool showVolumeLine = false; // the volume line is shown and edited in the lane
+
+    // Volume automation ("volume line"): extra gain over time, before the fader.
+    std::vector<AutomationPoint> volumeAutomation;
+
+    const std::vector<AudioClip>& clips() const { return clips_; }
+    void setClips(std::vector<AudioClip> c);   // assigns missing ids, keeps clips sorted by start
+    ClipId addClip(AudioClip c);
+    bool removeClip(ClipId);
+    const AudioClip* findClip(ClipId) const;
+
+private:
+    std::vector<AudioClip> clips_;
+    ClipId nextId_ = 1;
 };
 
 } // namespace mc::model
