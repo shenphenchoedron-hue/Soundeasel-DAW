@@ -12,11 +12,11 @@ def content_en(m):
     if m.os.path.exists(m.ICON):
         story.append(m.Image(m.ICON, width=38 * mm, height=38 * mm))
     story.append(m.Spacer(1, 10 * mm))
-    story.append(m.Paragraph("MIDI Composer", st["title"]))
+    story.append(m.Paragraph("Soundeasel DAW", st["title"]))
     story.append(m.Spacer(1, 4 * mm))
     story.append(m.Paragraph("User Manual", st["subtitle"]))
     story.append(m.Spacer(1, 3 * mm))
-    story.append(m.Paragraph("Easy Midi Composer – compose with chords, scales and built-in instruments", st["subtitle"]))
+    story.append(m.Paragraph("Compose with chords, scales, built-in instruments, audio tracks and a mixer", st["subtitle"]))
     story.append(m.PageBreak())
 
     # ---- toc
@@ -29,12 +29,12 @@ def content_en(m):
 
     # ---- 1
     h1("1. Welcome")
-    p("MIDI Composer is a lightweight program for writing music with MIDI – ideas, chord progressions and complete "
-      "arrangements – without having to set up a big, complicated DAW project. You can record from a MIDI keyboard, "
+    p("Soundeasel DAW is an easy program for making music – ideas, chord progressions and complete arrangements – "
+      "without the complexity of a big studio program. You can record from a MIDI keyboard, "
       "draw notes with the mouse, let the program build chords from a scale, and hear everything with the built-in "
       "instruments or your own plugins.")
-    p("When you are done, you can export a MIDI file that every music program can open, or MusicXML to view and print "
-      "the score in, for example, MuseScore.")
+    p("When you are done, you can export the finished song as WAV, MP3, OGG, FLAC or M4A, a MIDI file that every music "
+      "program can open, or MusicXML to view and print the score in, for example, MuseScore.")
     h2("What it can do")
     bullets([
         "Multiple tracks, each with its own instrument, colour, volume, pan and MIDI channel.",
@@ -45,6 +45,9 @@ def content_en(m):
         "22 built-in band instruments (Rock, Pop, Jazz) – plus your own SoundFont files (.sf2).",
         "Plugins: VST3, Audio Unit (Mac), LV2 (Linux) and CLAP.",
         "Import and export of MIDI and MusicXML (MuseScore, Sibelius, Finale, Dorico).",
+        "Audio tracks: record from a microphone or instrument, or import audio files.",
+        "A mixer with EQ, compressor, reverb and effect plugins on every track.",
+        "Export of the finished song as WAV, MP3, OGG, FLAC or M4A.",
         "Undo/redo for everything.",
     ])
     p("Buttons and menus are written in <b>bold</b> in this manual, exactly as they appear in the program. A Danish "
@@ -54,18 +57,18 @@ def content_en(m):
     h1("2. Installation")
     h2("Mac")
     steps([
-        "Unzip <b>MIDI-Composer-macOS-Universal.zip</b>. It runs on both Intel and Apple Silicon Macs.",
-        "Move <b>MIDI Composer.app</b> to your <b>Applications</b> folder.",
+        "Unzip <b>Soundeasel-DAW-macOS-Universal.zip</b>. It runs on both Intel and Apple Silicon Macs.",
+        "Move <b>Soundeasel DAW.app</b> to your <b>Applications</b> folder.",
         "The program is not signed by Apple, so macOS blocks it the first time. Open Terminal and run:",
     ])
-    code('xattr -dr com.apple.quarantine "/Applications/MIDI Composer.app"')
+    code('xattr -dr com.apple.quarantine "/Applications/Soundeasel DAW.app"')
     p("If macOS still says the program cannot be opened, or that it \"may harm your computer\", allow it in System "
       "Settings:")
     steps([
-        "Try to open <b>MIDI Composer</b> once and close the warning (choose <b>OK</b> or <b>Done</b>, not "
+        "Try to open <b>Soundeasel DAW</b> once and close the warning (choose <b>OK</b> or <b>Done</b>, not "
         "<b>Move to Trash</b>).",
         "Open <b>System Settings → Privacy &amp; Security</b>.",
-        "Scroll down to the <b>Security</b> section. It says that \"MIDI Composer\" was blocked. Click <b>Open Anyway</b>.",
+        "Scroll down to the <b>Security</b> section. It says that \"Soundeasel DAW\" was blocked. Click <b>Open Anyway</b>.",
         "Confirm with your password or Touch ID, then click <b>Open</b> in the next dialog.",
     ])
     p("You only need to do this once per version of the program. The <b>Open Anyway</b> button is only shown for about "
@@ -73,12 +76,12 @@ def content_en(m):
     tip("On older macOS versions (14 and earlier) you can instead right-click the program, choose <b>Open</b> and "
         "confirm. From macOS 15 on this no longer works – use System Settings as described above.")
     h2("Windows")
-    p("Unzip <b>MIDI-Composer-Windows-x64.zip</b> into a folder and start <b>MIDI Composer.exe</b>. The file "
+    p("Unzip <b>Soundeasel-DAW-Windows-x64.zip</b> into a folder and start <b>Soundeasel DAW.exe</b>. The file "
       "<b>GeneralUser-GS.sf2</b> must stay in the same folder as the program – it contains the built-in instruments.")
     h2("Debian and Ubuntu")
-    code("sudo apt install ./midi-composer_<version>_amd64.deb")
-    p("The program then appears in the application menu as <b>MIDI Composer</b>, or can be started with the command "
-      "<b>midi-composer</b>.")
+    code("sudo apt install ./soundeasel-daw_<version>_amd64.deb")
+    p("The program then appears in the application menu as <b>Soundeasel DAW</b>, or can be started with the command "
+      "<b>soundeasel-daw</b>.")
 
     # ---- 3
     h1("3. First start")
@@ -401,7 +404,7 @@ def content_en(m):
       "grand staff.")
     p("<b>Import</b>: notes, chords, rests, ties, pickup bars and multiple voices are included, and the program sets "
       "Root/Scale from the score's key signature. Repeats are not unrolled, and grace notes and dynamics are skipped.")
-    p("In MuseScore, use <b>File → Export → MusicXML</b> (not the normal .mscz file) to bring the score into MIDI Composer.")
+    p("In MuseScore, use <b>File → Export → MusicXML</b> (not the normal .mscz file) to bring the score into Soundeasel DAW.")
 
     # ---- 12
     h1("13. Settings")
@@ -414,7 +417,7 @@ def content_en(m):
         "<b>Chord modifier keys</b>: which keys act as 1st inversion, 2nd inversion, 7 and 9. Click <b>MIDI Learn</b> "
         "and press the key you want to use. <b>Defaults</b> restores the default keys C1, D1, C♯1 and D♯1.",
     ])
-    p("<b>Options → User manual</b> opens this manual. <b>Options → About MIDI Composer</b> shows the version and credits.")
+    p("<b>Options → User manual</b> opens this manual. <b>Options → About Soundeasel DAW</b> shows the version and credits.")
 
     # ---- 13
     h1("14. Keyboard shortcuts")
@@ -466,6 +469,6 @@ def content_en(m):
         "(WTFPL license). https://musical-artifacts.com/artifacts/1796. The license is included as Valiant-Violin-LICENSE.txt.",
         "<b>TinySoundFont</b> – SoundFont playback – by Bernhard Schelling (MIT license). "
         "https://github.com/schellingb/TinySoundFont",
-        "<b>JUCE</b> – the framework MIDI Composer is built with. https://juce.com",
-        "Source code: https://github.com/shenphenchoedron-hue/easymidieditor",
+        "<b>JUCE</b> – the framework Soundeasel DAW is built with. https://juce.com",
+        "Source code: https://github.com/shenphenchoedron-hue/Soundeasel-DAW",
     ])

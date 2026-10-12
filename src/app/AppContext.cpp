@@ -322,7 +322,7 @@ void AppContext::openManual()
     // next to the executable (Windows/Linux tarball), /usr/share/doc (Debian).
     const auto exe = juce::File::getSpecialLocation(juce::File::currentExecutableFile);
     const auto app = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
-    const juce::String name = "MIDI-Composer-Manual.pdf";
+    const juce::String name = "Soundeasel-DAW-Manual.pdf";
     for (auto& f : {app.getChildFile("Contents/Resources").getChildFile(name),
                     exe.getParentDirectory().getChildFile(name),
                     juce::File("/usr/share/doc/soundeasel-daw").getChildFile(name)})

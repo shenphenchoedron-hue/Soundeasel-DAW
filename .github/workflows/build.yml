@@ -65,16 +65,16 @@ jobs:
           ART=build/src/app/SoundeaselDAW_artefacts/Release
           mkdir -p dist
           if [ "$RUNNER_OS" == "Windows" ]; then
-            7z a "dist/${{ matrix.artifact }}.zip" "./$ART/Soundeasel DAW.exe" "./$ART/GeneralUser-GS.sf2" "./$ART/GeneralUser-GS-LICENSE.txt" "./$ART/Valiant_Violin_V2.sf2" "./$ART/Valiant-Violin-LICENSE.txt" "./$ART/MIDI-Composer-Manual.pdf" README.md LICENSE
+            7z a "dist/${{ matrix.artifact }}.zip" "./$ART/Soundeasel DAW.exe" "./$ART/GeneralUser-GS.sf2" "./$ART/GeneralUser-GS-LICENSE.txt" "./$ART/Valiant_Violin_V2.sf2" "./$ART/Valiant-Violin-LICENSE.txt" "./$ART/Soundeasel-DAW-Manual.pdf" README.md LICENSE
           elif [ "$RUNNER_OS" == "macOS" ]; then
             lipo -info "$ART/Soundeasel DAW.app/Contents/MacOS/Soundeasel DAW"
             test -f "$ART/Soundeasel DAW.app/Contents/Resources/GeneralUser-GS.sf2"
             test -f "$ART/Soundeasel DAW.app/Contents/Resources/Valiant_Violin_V2.sf2"
-            test -f "$ART/Soundeasel DAW.app/Contents/Resources/MIDI-Composer-Manual.pdf"
+            test -f "$ART/Soundeasel DAW.app/Contents/Resources/Soundeasel-DAW-Manual.pdf"
             ditto -c -k --keepParent "$ART/Soundeasel DAW.app" "dist/${{ matrix.artifact }}.zip"
           else
             mkdir -p pkg/Soundeasel-DAW
-            cp "$ART/Soundeasel DAW" "$ART/GeneralUser-GS.sf2" "$ART/GeneralUser-GS-LICENSE.txt" "$ART/Valiant_Violin_V2.sf2" "$ART/Valiant-Violin-LICENSE.txt" "$ART/MIDI-Composer-Manual.pdf" README.md LICENSE pkg/Soundeasel-DAW/
+            cp "$ART/Soundeasel DAW" "$ART/GeneralUser-GS.sf2" "$ART/GeneralUser-GS-LICENSE.txt" "$ART/Valiant_Violin_V2.sf2" "$ART/Valiant-Violin-LICENSE.txt" "$ART/Soundeasel-DAW-Manual.pdf" README.md LICENSE pkg/Soundeasel-DAW/
             cp resources/icon.png pkg/Soundeasel-DAW/
             tar -czf "dist/${{ matrix.artifact }}.tar.gz" -C pkg Soundeasel-DAW
           fi
@@ -123,7 +123,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Add manuals (English + Danish)
-        run: cp docs/MIDI-Composer-Manual.pdf docs/MIDI-Composer-Manual-da.pdf dist/
+        run: cp docs/Soundeasel-DAW-Manual.pdf docs/Soundeasel-DAW-Manual-da.pdf dist/
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

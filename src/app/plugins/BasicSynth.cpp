@@ -74,7 +74,7 @@ private:
 
 PluginInfo InternalPluginHost::basicSynthInfo()
 {
-    return {kFormat, kBasicSynthId, "Basic Synth", "MidiComposer", "Synth", {}};
+    return {kFormat, kBasicSynthId, "Basic Synth", "Soundeasel", "Synth", {}};
 }
 
 std::vector<PluginInfo> InternalPluginHost::builtins()

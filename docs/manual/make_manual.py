@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generates the user manuals as PDF:
-    docs/MIDI-Composer-Manual.pdf     English (bundled with the app, Options > User manual)
-    docs/MIDI-Composer-Manual-da.pdf  Danish (attached to GitHub Releases)
+    docs/Soundeasel-DAW-Manual.pdf     English (bundled with the app, Options > User manual)
+    docs/Soundeasel-DAW-Manual-da.pdf  Danish (attached to GitHub Releases)
 English content lives in manual_en.py, Danish content in content_da() below.
 
     python3 -m venv .venv && .venv/bin/pip install reportlab
@@ -23,8 +23,8 @@ from reportlab.platypus import (Image, KeepTogether, PageBreak, Paragraph, Simpl
 from reportlab.platypus.tableofcontents import TableOfContents
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-OUT_EN = os.path.join(ROOT, "docs", "MIDI-Composer-Manual.pdf")      # English: bundled with the app
-OUT_DA = os.path.join(ROOT, "docs", "MIDI-Composer-Manual-da.pdf")   # Danish: GitHub Releases download
+OUT_EN = os.path.join(ROOT, "docs", "Soundeasel-DAW-Manual.pdf")      # English: bundled with the app
+OUT_DA = os.path.join(ROOT, "docs", "Soundeasel-DAW-Manual-da.pdf")   # Danish: GitHub Releases download
 ICON = os.path.join(ROOT, "resources", "icon.png")
 
 # ------------------------------------------------------------------ fonts
@@ -143,11 +143,11 @@ def content_da():
     if os.path.exists(ICON):
         story.append(Image(ICON, width=38 * mm, height=38 * mm))
     story.append(Spacer(1, 10 * mm))
-    story.append(Paragraph("MIDI Composer", st["title"]))
+    story.append(Paragraph("Soundeasel DAW", st["title"]))
     story.append(Spacer(1, 4 * mm))
     story.append(Paragraph("Brugermanual", st["subtitle"]))
     story.append(Spacer(1, 3 * mm))
-    story.append(Paragraph("Easy Midi Composer – komponér med akkorder, skalaer og indbyggede instrumenter", st["subtitle"]))
+    story.append(Paragraph("Komponér med akkorder, skalaer, indbyggede instrumenter, lydspor og mixer", st["subtitle"]))
     story.append(PageBreak())
 
     # ---- toc
@@ -160,12 +160,12 @@ def content_da():
 
     # ---- 1
     h1("1. Velkommen")
-    p("MIDI Composer er et let program til at skrive musik med MIDI – idéer, akkordforløb og hele arrangementer – uden "
-      "at skulle sætte et stort og kompliceret DAW-projekt op. Du kan spille ind fra et MIDI-keyboard, tegne toner med "
+    p("Soundeasel DAW er et let program til at lave musik – idéer, akkordforløb og hele arrangementer – uden det "
+      "besvær, et stort studieprogram giver. Du kan spille ind fra et MIDI-keyboard, tegne toner med "
       "musen, lade programmet bygge akkorder ud fra en skala og høre det hele med indbyggede instrumenter eller dine egne "
       "plugins.")
-    p("Når du er færdig, kan du eksportere til en MIDI-fil, som alle musikprogrammer kan åbne, eller til MusicXML, så du "
-      "kan få noderne vist og skrevet ud i fx MuseScore.")
+    p("Når du er færdig, kan du eksportere den færdige sang som WAV, MP3, OGG, FLAC eller M4A, til en MIDI-fil, som alle "
+      "musikprogrammer kan åbne, eller til MusicXML, så du kan få noderne vist og skrevet ud i fx MuseScore.")
     h2("Det kan programmet")
     bullets([
         "Flere spor, hvert med sit eget instrument, farve, lydstyrke, panorering og MIDI-kanal.",
@@ -176,6 +176,9 @@ def content_da():
         "22 indbyggede bandinstrumenter (Rock, Pop, Jazz) – og dine egne SoundFont-filer (.sf2).",
         "Plugins: VST3, Audio Unit (Mac), LV2 (Linux) og CLAP.",
         "Import og eksport af MIDI og MusicXML (MuseScore, Sibelius, Finale, Dorico).",
+        "Lydspor: optag fra mikrofon eller instrument, eller importér lydfiler.",
+        "Mixer med EQ, kompressor, rumklang og effekt-plugins på hvert spor.",
+        "Eksport af den færdige sang som WAV, MP3, OGG, FLAC eller M4A.",
         "Fortryd/gentag på alt.",
     ])
     p("Knapper og menuer i programmet er på engelsk. I denne manual står de med <b>fed</b> skrift præcis som i programmet.")
@@ -184,18 +187,18 @@ def content_da():
     h1("2. Installation")
     h2("Mac")
     steps([
-        "Pak zip-filen <b>MIDI-Composer-macOS-Universal.zip</b> ud. Den virker på både Intel- og Apple Silicon-Macs.",
-        "Flyt <b>MIDI Composer.app</b> til mappen <b>Programmer</b> (Applications).",
+        "Pak zip-filen <b>Soundeasel-DAW-macOS-Universal.zip</b> ud. Den virker på både Intel- og Apple Silicon-Macs.",
+        "Flyt <b>Soundeasel DAW.app</b> til mappen <b>Programmer</b> (Applications).",
         "Programmet er ikke signeret af Apple, så macOS blokerer det første gang. Åbn Terminal og kør:",
     ])
-    code('xattr -dr com.apple.quarantine "/Applications/MIDI Composer.app"')
+    code('xattr -dr com.apple.quarantine "/Applications/Soundeasel DAW.app"')
     p("Siger macOS stadig, at programmet ikke kan åbnes, eller at det \"kan skade din computer\", så giv det lov i "
       "Systemindstillinger:")
     steps([
-        "Prøv at åbne <b>MIDI Composer</b> én gang, og luk advarslen (vælg <b>OK</b> eller <b>Færdig</b>, ikke "
+        "Prøv at åbne <b>Soundeasel DAW</b> én gang, og luk advarslen (vælg <b>OK</b> eller <b>Færdig</b>, ikke "
         "<b>Flyt til papirkurv</b>).",
         "Åbn <b>Systemindstillinger → Anonymitet og sikkerhed</b>.",
-        "Rul ned til afsnittet <b>Sikkerhed</b>. Der står, at \"MIDI Composer\" blev blokeret. Klik <b>Åbn alligevel</b>.",
+        "Rul ned til afsnittet <b>Sikkerhed</b>. Der står, at \"Soundeasel DAW\" blev blokeret. Klik <b>Åbn alligevel</b>.",
         "Bekræft med din adgangskode eller Touch ID, og klik <b>Åbn</b> i den næste dialog.",
     ])
     p("Det skal kun gøres én gang pr. version af programmet. Knappen <b>Åbn alligevel</b> vises kun i cirka en time efter, "
@@ -203,12 +206,12 @@ def content_da():
     tip("På ældre macOS-versioner (14 og tidligere) kan du i stedet højreklikke på programmet, vælge <b>Åbn</b> og "
         "bekræfte. Fra macOS 15 virker det ikke længere – brug Systemindstillinger som beskrevet ovenfor.")
     h2("Windows")
-    p("Pak <b>MIDI-Composer-Windows-x64.zip</b> ud i en mappe og start <b>MIDI Composer.exe</b>. Filen "
+    p("Pak <b>Soundeasel-DAW-Windows-x64.zip</b> ud i en mappe og start <b>Soundeasel DAW.exe</b>. Filen "
       "<b>GeneralUser-GS.sf2</b> skal blive liggende i samme mappe som programmet – den indeholder de indbyggede instrumenter.")
     h2("Debian og Ubuntu")
-    code("sudo apt install ./midi-composer_<version>_amd64.deb")
-    p("Programmet findes derefter i programmenuen som <b>MIDI Composer</b> eller kan startes med kommandoen "
-      "<b>midi-composer</b>.")
+    code("sudo apt install ./soundeasel-daw_<version>_amd64.deb")
+    p("Programmet findes derefter i programmenuen som <b>Soundeasel DAW</b> eller kan startes med kommandoen "
+      "<b>soundeasel-daw</b>.")
 
     # ---- 3
     h1("3. Første start")
@@ -526,7 +529,7 @@ def content_da():
       "over taktstreger bindes, og akkorder skrives som akkorder. Klaverspor med stort toneomfang får to systemer.")
     p("<b>Import</b>: noder, akkorder, pauser, overbindinger, optakter og flere stemmer kommer med, og programmet sætter "
       "Root/Scale efter partiturets toneart. Gentagelser foldes ikke ud, og forslagstoner og dynamik springes over.")
-    p("I MuseScore: brug <b>File → Export → MusicXML</b> (ikke den almindelige .mscz-fil) for at få noderne over i MIDI Composer.")
+    p("I MuseScore: brug <b>File → Export → MusicXML</b> (ikke den almindelige .mscz-fil) for at få noderne over i Soundeasel DAW.")
 
     # ---- 12
     h1("13. Indstillinger")
@@ -539,7 +542,7 @@ def content_da():
         "og tryk på den tangent, du vil bruge. <b>Defaults</b> sætter standardtangenterne C1, D1, C♯1 og D♯1 tilbage.",
     ])
     p("<b>Options → User manual</b> åbner manualen på engelsk (den danske manual kan hentes fra projektets Releases-side "
-      "på GitHub). <b>Options → About MIDI Composer</b> viser version og credits.")
+      "på GitHub). <b>Options → About Soundeasel DAW</b> viser version og credits.")
 
     # ---- 13
     h1("14. Tastaturgenveje")
@@ -591,8 +594,8 @@ def content_da():
         "(WTFPL-licens). https://musical-artifacts.com/artifacts/1796. Licensen følger med som Valiant-Violin-LICENSE.txt.",
         "<b>TinySoundFont</b> – afspilning af SoundFonts – af Bernhard Schelling (MIT-licens). "
         "https://github.com/schellingb/TinySoundFont",
-        "<b>JUCE</b> – programbiblioteket, MIDI Composer er bygget på. https://juce.com",
-        "Kildekode: https://github.com/shenphenchoedron-hue/easymidieditor",
+        "<b>JUCE</b> – programbiblioteket, Soundeasel DAW er bygget på. https://juce.com",
+        "Kildekode: https://github.com/shenphenchoedron-hue/Soundeasel-DAW",
     ])
 
 
@@ -628,7 +631,7 @@ def render(content, out, title, footer_left, page_word):
     content()
     FOOTER["left"], FOOTER["page"] = footer_left, page_word
     doc = Doc(out, pagesize=A4, leftMargin=22 * mm, rightMargin=22 * mm, topMargin=20 * mm, bottomMargin=22 * mm,
-              title=title, author="MIDI Composer")
+              title=title, author="Soundeasel DAW")
     doc.multiBuild(list(story), onFirstPage=footer, onLaterPages=footer)
     print("Wrote", out)
 
@@ -638,5 +641,5 @@ if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from manual_en import content_en
     me = sys.modules[__name__]
-    render(lambda: content_en(me), OUT_EN, "MIDI Composer - User Manual", "MIDI Composer – User Manual", "Page")
-    render(content_da, OUT_DA, "MIDI Composer – Brugermanual", "MIDI Composer – Brugermanual", "Side")
+    render(lambda: content_en(me), OUT_EN, "Soundeasel DAW - User Manual", "Soundeasel DAW – User Manual", "Page")
+    render(content_da, OUT_DA, "Soundeasel DAW – Brugermanual", "Soundeasel DAW – Brugermanual", "Side")

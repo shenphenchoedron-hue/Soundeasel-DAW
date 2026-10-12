@@ -206,7 +206,7 @@ std::string MusicXml::write(const model::Project& p)
          "<!DOCTYPE score-partwise PUBLIC \"-//Recordare//DTD MusicXML 4.0 Partwise//EN\" "
          "\"http://www.musicxml.org/dtds/partwise.dtd\">\n"
          "<score-partwise version=\"4.0\">\n"
-         "  <identification><encoding><software>MIDI Composer</software></encoding></identification>\n"
+         "  <identification><encoding><software>Soundeasel DAW</software></encoding></identification>\n"
          "  <part-list>\n";
     for (size_t i = 0; i < tracks.size(); ++i) {
         const auto name = tracks[i]->name.empty() ? "Track " + std::to_string(i + 1) : tracks[i]->name;
