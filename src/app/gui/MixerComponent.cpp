@@ -141,6 +141,18 @@ public:
 
     model::TrackId trackId() const { return id; }
 
+    // Every strip gets room for the same number of plugin rows (the longest chain in the mixer);
+    // folded, the list is one summary line on every strip.
+    void setInsertLayout(int rows, bool fold, std::function<void()> toggleFold)
+    {
+        if (inserts) inserts->onToggleCollapsed = std::move(toggleFold);
+        if (rows == insertRows && fold == insertsFolded) return;
+        insertRows = rows;
+        insertsFolded = fold;
+        if (inserts) inserts->setCollapsed(fold);
+        resized();
+    }
+
     void refresh()
     {
         if (id == 0) {
@@ -246,10 +258,18 @@ public:
         }
         r.removeFromTop(gap);
         if (id != 0) {
-            // shown in processing order: FX plugins before or after the built-in effects
+            // shown in processing order: FX plugins before or after the built-in effects.
+            // The plugin list shows every plugin; only when the strip is too short is the fader made
+            // smaller (down to kMinFader) and, after that, the list scrolls.
+            constexpr int kMinFader = 90;
+            const int builtinsH = 22 + gapS + 22 + 5 + 22 + gap;
+            const int belowH = 20 + gapS + kMinFader; // value label + fader
+            const int room = r.getHeight() - builtinsH - gap - belowH;
+            const int insertsH = insertsFolded ? InsertsComponent::collapsedHeight()
+                                               : std::max(InsertsComponent::preferredHeight(), std::min(InsertsComponent::heightFor(insertRows), room));
             auto placeInserts = [&] {
                 if (!inserts) return;
-                inserts->setBounds(r.removeFromTop(InsertsComponent::preferredHeight()));
+                inserts->setBounds(r.removeFromTop(insertsH));
                 r.removeFromTop(gap);
             };
             if (!insertsLast) placeInserts();
@@ -345,6 +365,8 @@ private:
     juce::TextButton source, mute{"M"}, solo{"S"}, arm{juce::String::fromUTF8("\xe2\x97\x8f")};
     std::unique_ptr<InsertsComponent> inserts;
     bool insertsLast = false;
+    int insertRows = InsertsComponent::kVisibleRows;
+    bool insertsFolded = false;
     juce::TextButton eqBtn{"EQ"}, eqEdit{juce::String::fromUTF8("\xe2\x80\xa6")};
     juce::TextButton compBtn{"COMP"}, revBtn{"REVERB"}, compEdit{juce::String::fromUTF8("\xe2\x80\xa6")}, revEdit{juce::String::fromUTF8("\xe2\x80\xa6")}; // …
     juce::Rectangle<int> grArea;
@@ -364,6 +386,10 @@ MixerComponent::MixerComponent(AppContext& a) : app(a)
     viewport.setScrollBarsShown(false, true);
     closeBtn.setTooltip("Hide the mixer (F3)");
     closeBtn.onClick = [this] { if (onClose) onClose(); };
+    addAndMakeVisible(foldBtn);
+    insertsFolded = app.settings.mixerInsertsCollapsed();
+    foldBtn.onClick = [this] { setInsertsFolded(!insertsFolded); };
+    updateFoldButton();
     master = std::make_unique<Strip>(app, 0);
     addAndMakeVisible(*master);
     app.addChangeListener(this);
@@ -385,7 +411,7 @@ void MixerComponent::paint(juce::Graphics& g)
     g.drawText("MIXER", theme::gap + 4, 0, 60, kHeaderHeight, juce::Justification::centredLeft);
     g.setFont(theme::uiFont(12.5f));
     g.drawText("Every track has a strip here. All tracks are mixed into Mains, which goes to your speakers / headphones.",
-               80, 0, getWidth() - 160, kHeaderHeight, juce::Justification::centredLeft);
+               80, 0, getWidth() - 270, kHeaderHeight, juce::Justification::centredLeft);
     if (strips.empty()) {
         g.setFont(theme::uiFont(14.0f));
         g.drawText("No tracks yet", viewport.getBounds(), juce::Justification::centred);
@@ -397,6 +423,7 @@ void MixerComponent::resized()
     auto r = getLocalBounds();
     auto header = r.removeFromTop(kHeaderHeight);
     closeBtn.setBounds(header.removeFromRight(70).reduced(6, 3));
+    foldBtn.setBounds(header.removeFromRight(110).reduced(0, 3));
     master->setBounds(r.removeFromRight(kStripWidth + 12).withTrimmedLeft(2));
     viewport.setBounds(r);
     const bool scrolls = (int)strips.size() * kStripWidth > r.getWidth();
@@ -406,6 +433,35 @@ void MixerComponent::resized()
 }
 
 void MixerComponent::changeListenerCallback(juce::ChangeBroadcaster*) { rebuild(); }
+
+int MixerComponent::preferredHeight() const
+{
+    if (insertsFolded) return kPreferredHeight - (InsertsComponent::preferredHeight() - InsertsComponent::collapsedHeight());
+    const int extra = std::max(0, insertRows - InsertsComponent::kVisibleRows) * (InsertsComponent::kRowHeight + 2);
+    return kPreferredHeight + extra;
+}
+
+void MixerComponent::setInsertsFolded(bool fold)
+{
+    if (fold == insertsFolded) return;
+    insertsFolded = fold;
+    app.settings.setMixerInsertsCollapsed(fold);
+    updateFoldButton();
+    applyInsertLayout();
+    if (onPreferredHeightChanged) onPreferredHeightChanged();
+}
+
+void MixerComponent::updateFoldButton()
+{
+    foldBtn.setButtonText(juce::String::fromUTF8(insertsFolded ? "FX plugins \xe2\x96\xb8" : "FX plugins \xe2\x96\xbe")); // ▸ / ▾
+    foldBtn.setTooltip(insertsFolded ? "Unfold the FX plugin lists on all strips (to add, move or open plugins)"
+                                     : "Fold the FX plugin lists on all strips to one line each (more room for the faders)");
+}
+
+void MixerComponent::applyInsertLayout()
+{
+    for (auto& s : strips) s->setInsertLayout(insertRows, insertsFolded, [this] { setInsertsFolded(!insertsFolded); });
+}
 
 void MixerComponent::rebuild()
 {
@@ -422,6 +478,15 @@ void MixerComponent::rebuild()
         for (auto& s : strips) s->refresh();
     }
     master->refresh();
+
+    int rowsNeeded = InsertsComponent::kVisibleRows;
+    for (auto& t : app.project.tracks()) rowsNeeded = std::max(rowsNeeded, (int)t->inserts.size());
+    if (rowsNeeded != insertRows || !same) {
+        const bool heightChanged = rowsNeeded != insertRows && !insertsFolded;
+        insertRows = rowsNeeded;
+        applyInsertLayout();
+        if (heightChanged && onPreferredHeightChanged) onPreferredHeightChanged();
+    }
 }
 
 void MixerComponent::refreshMeters()

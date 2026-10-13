@@ -24,6 +24,7 @@ MainComponent::MainComponent(AppContext& a)
     addChildComponent(mixer);
     addAndMakeVisible(transport.statusButton());
     mixer.onClose = [this] { setMixerVisible(false); };
+    mixer.onPreferredHeightChanged = [this] { if (mixerVisible) resized(); };
     transport.onToggleMixer = [this] { setMixerVisible(!mixerVisible); };
     for (juce::Component* c : std::initializer_list<juce::Component*>{&trackList, &pianoRoll, &stepSeq, &audioTracks,
                                                                       &zoomLabel, &zoomOutH, &zoomInH, &zoomOutV, &zoomInV,
@@ -111,7 +112,10 @@ void MainComponent::resized()
     }
     r.removeFromTop(1);
     if (mixerVisible) {
-        const int mh = std::min(MixerComponent::kPreferredHeight, std::max(240, r.getHeight() * 3 / 5));
+        // normally at most 3/5 of the window; long plugin chains may take up to 4/5, so every plugin stays visible
+        const int extra = mixer.preferredHeight() - MixerComponent::kPreferredHeight;
+        const int cap = std::min(r.getHeight() * 4 / 5, r.getHeight() * 3 / 5 + extra);
+        const int mh = std::min(mixer.preferredHeight(), std::max(240, cap));
         mixer.setBounds(r.removeFromBottom(mh));
     }
     page.setBounds(r);

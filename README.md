@@ -37,7 +37,12 @@ Click **...** next to an effect to open its settings.
 
 Effect plugins (inserts): every strip has a list of effect plugins. **+ FX** lists the scanned effects per format
 (VST3, AU on macOS, LV2 on Linux, CLAP); click a plugin's name to open its window, the power button bypasses it,
-right-click for move up/down, replace, remove and "Plugins after EQ / COMP / REVERB" (default: plugins first).
+right-click for move up/down/to top/to bottom, replace, remove and "Plugins after EQ / COMP / REVERB" (default: plugins first).
+Plugins are processed from top to bottom: **drag a plugin's name up or down** to change the order (a line shows
+where it lands; the list scrolls when you drag to its edge). Reordering can be undone.
+Every strip shows all of its plugins (the mixer grows with the longest chain). **FX plugins ▾** in the mixer header
+(or **▴** next to **+ FX**) folds the lists on all strips to one line each, e.g. "▸ 3 FX (1 off)" - hover it to see
+the chain, click it to unfold again. The choice is remembered.
 Plugin lists from older versions only contain instruments; the first time you add an effect you are offered a
 rescan. VST2 hosting needs Steinberg's VST2 SDK, which is no longer distributed: configure with
 `-DMC_VST2_SDK_DIR=<folder containing pluginterfaces/vst2.x>` to enable it. CLAP plugins (instruments and

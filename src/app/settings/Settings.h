@@ -36,6 +36,8 @@ public:
     bool pianoRollVisible() const;
     void setPianoRollVisible(bool);
     bool mixerVisible() const;
+    bool mixerInsertsCollapsed() const;   // FX plugin lists folded to one line per strip
+    void setMixerInsertsCollapsed(bool);
     void setMixerVisible(bool);
 
     juce::File lastDirectory() const;

@@ -67,6 +67,8 @@ bool Settings::pianoRollVisible() const { return file().getBoolValue("pianoRollV
 void Settings::setPianoRollVisible(bool b) { file().setValue("pianoRollVisible", b); file().saveIfNeeded(); }
 bool Settings::mixerVisible() const { return file().getBoolValue("mixerVisible", false); }
 void Settings::setMixerVisible(bool b) { file().setValue("mixerVisible", b); file().saveIfNeeded(); }
+bool Settings::mixerInsertsCollapsed() const { return file().getBoolValue("mixerInsertsCollapsed", false); }
+void Settings::setMixerInsertsCollapsed(bool b) { file().setValue("mixerInsertsCollapsed", b); file().saveIfNeeded(); }
 
 juce::File Settings::lastDirectory() const
 {

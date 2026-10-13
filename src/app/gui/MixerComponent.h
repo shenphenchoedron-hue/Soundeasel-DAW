@@ -16,7 +16,10 @@ public:
     void resized() override;
     void paint(juce::Graphics&) override;
     void refreshMeters();                 // UI timer
+    // grows with the longest plugin chain, so every plugin on every strip can be seen
+    int preferredHeight() const;
     std::function<void()> onClose;
+    std::function<void()> onPreferredHeightChanged;
 
     static constexpr int kStripWidth = 98, kHeaderHeight = 28, kPreferredHeight = 520;
     class Strip;
@@ -24,13 +27,19 @@ public:
 private:
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
     void rebuild();
+    void setInsertsFolded(bool);
+    void updateFoldButton();
+    void applyInsertLayout();
 
     AppContext& app;
     juce::Viewport viewport;
     juce::Component content;
     std::vector<std::unique_ptr<Strip>> strips;
     std::unique_ptr<Strip> master;
+    int insertRows = 0; // plugin rows on every strip: the longest chain (all strips stay aligned)
     juce::TextButton closeBtn{"Hide"};
+    juce::TextButton foldBtn;
+    bool insertsFolded = false; // FX plugin lists folded to one line on every strip (saved in the settings)
 };
 
 } // namespace mc::gui
