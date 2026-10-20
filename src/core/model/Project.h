@@ -3,6 +3,7 @@
 #include "model/Track.h"
 #include <functional>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,17 @@ public:
     Tick loopEnd = 4 * 4 * kPPQ;
     HarmonySettings harmony;
     MasterBus master;
+
+    // Instrument plugins ticked in the plugin browser ("format|identifier"): the instrument menus of
+    // this project only list these (plus the built-in instruments and each track's current one).
+    // Empty = the menus list every scanned instrument.
+    std::set<std::string> instrumentMenu;
+    static std::string pluginMenuKey(const std::string& format, const std::string& identifier) { return format + "|" + identifier; }
+    bool instrumentMenuFiltered() const { return !instrumentMenu.empty(); }
+    bool inInstrumentMenu(const std::string& format, const std::string& identifier) const
+    {
+        return instrumentMenu.empty() || instrumentMenu.count(pluginMenuKey(format, identifier)) > 0;
+    }
     input::ControllerMapping controllerMapping;
 
     // ---- change notification (UI observes the model; model never knows the UI)

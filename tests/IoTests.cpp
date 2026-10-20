@@ -211,3 +211,24 @@ TEST(humanized_flag_roundtrip)
     CHECK(!qt->notes()[0].humanized);
     CHECK(qt->notes()[1].humanized);
 }
+
+TEST(instrument_menu_selection_roundtrip)
+{
+    Project p;
+    CHECK(!p.instrumentMenuFiltered());
+    CHECK(p.inInstrumentMenu("VST3", "anything"));       // nothing ticked: everything is shown
+    p.instrumentMenu.insert(Project::pluginMenuKey("VST3", "Diva"));
+    p.instrumentMenu.insert(Project::pluginMenuKey("AudioUnit", "aumu|Kont|NiSo"));
+    CHECK(p.inInstrumentMenu("VST3", "Diva"));
+    CHECK(!p.inInstrumentMenu("VST3", "Serum"));
+    CHECK(!p.inInstrumentMenu("AudioUnit", "Diva"));     // the format is part of the key
+    Project q;
+    CHECK(io::ProjectSerializer::fromString(io::ProjectSerializer::toString(p), q).ok);
+    CHECK(q.instrumentMenu == p.instrumentMenu);
+    Project copy(p);
+    CHECK(copy.instrumentMenu == p.instrumentMenu);
+    // older projects without the list show everything
+    Project r;
+    CHECK(io::ProjectSerializer::fromString(io::ProjectSerializer::toString(Project{}), r).ok);
+    CHECK(r.instrumentMenu.empty());
+}

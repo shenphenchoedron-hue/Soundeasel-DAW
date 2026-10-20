@@ -22,6 +22,7 @@ Project& Project::operator=(const Project& o)
     loopEnd = o.loopEnd;
     harmony = o.harmony;
     master = o.master;
+    instrumentMenu = o.instrumentMenu;
     controllerMapping = o.controllerMapping;
     // listeners are intentionally not copied
     return *this;

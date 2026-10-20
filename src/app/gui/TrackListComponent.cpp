@@ -173,12 +173,19 @@ void showInstrumentMenu(AppContext& app, model::TrackId id, juce::Component& tar
     // Internal: built-in band instruments grouped Rock / Pop / Jazz, then Basic Synth.
     // SoundFont: the user's own .sf2 files, one sub-menu per file.
     // Everything else (VST3, AU, LV2, CLAP): one sub-menu per format.
+    // Plugins and SoundFont sounds not ticked in the plugin browser are left out (the built-in
+    // instruments and the track's current instrument are always listed).
     juce::PopupMenu internal, userSounds;
     std::map<std::string, juce::PopupMenu> groups, files, byFormat;
+    int hidden = 0, total = 0;
     for (size_t i = 0; i < list.size(); ++i) {
         const auto& p = list[i];
         if (!p.isInstrument) continue;
         const int itemId = (int)i + 1000;
+        if (p.format != plugins::InternalPluginHost::kFormat) {
+            ++total;
+            if (!app.project.inInstrumentMenu(p.format, p.identifier) && !isCurrent(p)) { ++hidden; continue; }
+        }
         if (p.format == plugins::InternalPluginHost::kFormat) {
             if (p.category == "Rock" || p.category == "Pop" || p.category == "Jazz")
                 groups[p.category].addItem(itemId, juce::String(p.name), true, isCurrent(p));
@@ -203,7 +210,10 @@ void showInstrumentMenu(AppContext& app, model::TrackId id, juce::Component& tar
 
     for (auto& [fmt, sub] : byFormat) m.addSubMenu(juce::String(fmt), sub);
     m.addSeparator();
-    m.addItem(1, "Browse plugins...");
+    if (app.project.instrumentMenuFiltered())
+        m.addItem(1, "Browse plugins... (" + juce::String(total - hidden) + " of " + juce::String(total) + " shown - tick more there)");
+    else
+        m.addItem(1, "Browse plugins... (tick the ones to show here)");
     m.addSeparator();
     auto* inst = app.engine->instrument(id);
     m.addItem(2, "Open editor", inst && inst->hasEditor());

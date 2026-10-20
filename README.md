@@ -63,6 +63,12 @@ Want more? Copy SoundFont files (`.sf2`) into the Sounds folder
 (*Options → Open Sounds folder*), then *Options → Rescan plugins*. Every preset
 appears under *SoundFonts*.
 
+Hundreds of instrument plugins? Open *Browse plugins...* (in a track's instrument menu, or *Options > Plugin browser*)
+and tick the plugins you want in the **Show** column. The instrument menus of this project then list only the
+ticked plugins and SoundFont sounds (the built-in instruments and each track's current instrument are always listed).
+*Tick all listed* ticks everything the search/format filter shows, *Untick all* lists everything again, *Ticked only*
+shows just your selection, and Space ticks the selected rows. The choice is saved with the project.
+
 Credits: built-in sounds are **GeneralUser GS** by S. Christian Collins
 (https://www.schristiancollins.com/generaluser, license shipped as
 `GeneralUser-GS-LICENSE.txt`). The Jazz violin is **Valiant Violin v2 GM** by Giovanni Valentino with

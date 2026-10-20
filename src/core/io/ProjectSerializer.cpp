@@ -47,6 +47,11 @@ std::string ProjectSerializer::toString(const Project& p, const std::string& bas
     root.set("activeTrack", (long long)p.activeTrack);
     root.set("master", Json::Object{{"volume", p.master.volume}, {"balance", p.master.balance}, {"mute", p.master.mute}});
     root.set("harmony", Json::Object{{"root", p.harmony.root}, {"scale", p.harmony.scaleId}, {"chordMode", p.harmony.chordMode}});
+    if (!p.instrumentMenu.empty()) {
+        Json::Array menu;
+        for (auto& k : p.instrumentMenu) menu.push_back(k);
+        root.set("instrumentMenu", menu); // plugins shown in the instrument menus (empty/absent = all)
+    }
     Json::Array mapping;
     for (int n : p.controllerMapping.notes) mapping.push_back(n);
     root.set("controllerMapping", Json::Object{{"inversion1", mapping[0]}, {"inversion2", mapping[1]},
@@ -158,6 +163,9 @@ LoadResult ProjectSerializer::fromString(const std::string& text, Project& out, 
     p.harmony.root = ((int)root["harmony"]["root"].num(9) % 12 + 12) % 12;
     p.harmony.scaleId = root["harmony"]["scale"].str("natural_minor");
     p.harmony.chordMode = root["harmony"]["chordMode"].boolean(false);
+    p.instrumentMenu.clear();
+    for (auto& k : root["instrumentMenu"].arr())
+        if (!k.str("").empty()) p.instrumentMenu.insert(k.str(""));
     auto& cm = root["controllerMapping"];
     const char* keys[] = {"inversion1", "inversion2", "seventh", "ninth"};
     for (int i = 0; i < 4; ++i) p.controllerMapping.notes[i] = (int)cm[keys[i]].num(p.controllerMapping.notes[i]);

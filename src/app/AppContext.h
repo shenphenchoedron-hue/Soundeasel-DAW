@@ -182,6 +182,13 @@ public:
 
     // Call after modifying the model without a command (e.g. live drag).
     void modelChangedWithoutUndo() { project.notifyChanged(); }
+    // Which instrument plugins this project's instrument menus list (ticked in the plugin browser; empty = all).
+    void setInstrumentMenu(std::set<std::string> keys)
+    {
+        if (keys == project.instrumentMenu) return;
+        project.instrumentMenu = std::move(keys);
+        modelChangedWithoutUndo(); // saved with the project
+    }
 
     // Snaps for UI
     seq::GridValue grid;

@@ -363,6 +363,18 @@ def content_da():
       "sortliste og springes over næste gang.")
     p("Mangler et plugin, som et projekt bruger, står der <b>Plugin missing</b> på sporet. Tonerne er der stadig – vælg et "
       "andet instrument, eller installér pluginet igen.")
+    h2("Vælg hvilke plugins menuen viser")
+    p("Med mange plugins installeret kan instrumentmenuen blive meget lang. Åbn <b>Browse plugins...</b> (nederst i "
+      "instrumentmenuen eller <b>Options → Plugin browser</b>) og sæt flueben i kolonnen <b>Show</b> ved de instrumenter, "
+      "du vil bruge i dette projekt. Instrumentmenuerne viser så kun plugins og SoundFont-lyde med flueben.")
+    bullets([
+        "Ingen flueben: menuerne viser alt, som før.",
+        "De indbyggede instrumenter vises altid, og det samme gør det instrument, et spor allerede bruger.",
+        "<b>Tick all listed</b> sætter flueben ved alt, søgningen og formatfilteret viser, fx alle plugins fra én producent. "
+        "<b>Untick all</b> fjerner alle flueben. <b>Ticked only</b> viser kun dit udvalg.",
+        "Markér flere rækker og tryk <b>mellemrum</b> for at sætte eller fjerne flueben på dem alle.",
+        "Valget gemmes i projektet. Menuen viser, hvor mange plugins der er med, fx “12 of 340 shown”.",
+    ])
 
     # ---- 8
     h1("8. Piano roll")

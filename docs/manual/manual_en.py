@@ -236,6 +236,19 @@ def content_en(m):
       "blacklisted and skipped next time.")
     p("If a plugin used by a project is missing, the track shows <b>Plugin missing</b>. The notes are "
       "still there – choose another instrument, or reinstall the plugin.")
+    h2("Choosing which plugins the menu shows")
+    p("With many plugins installed, the instrument menu can get very long. Open <b>Browse plugins...</b> (at the "
+      "bottom of the instrument menu, or <b>Options → Plugin browser</b>) and tick the instruments you want to use "
+      "in this project in the <b>Show</b> column. The instrument menus then list only the ticked plugins and "
+      "SoundFont sounds.")
+    bullets([
+        "No ticks: the menus list everything, as before.",
+        "The built-in instruments are always listed, and so is the instrument a track already uses.",
+        "<b>Tick all listed</b> ticks everything the search and format filter show, e.g. all plugins from one maker. "
+        "<b>Untick all</b> removes all ticks. <b>Ticked only</b> lists just your selection.",
+        "Select several rows and press <b>Space</b> to tick or untick them together.",
+        "The choice is saved with the project. The menu shows how many plugins are listed, e.g. “12 of 340 shown”.",
+    ])
 
     # ---- 8
     h1("8. Piano roll")
