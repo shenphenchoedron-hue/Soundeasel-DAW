@@ -90,6 +90,8 @@ std::unique_ptr<plugins::InstrumentPlugin> AudioEngine::setInstrument(model::Tra
     }
     std::swap(s->plugin, p);
     s->held.reset();
+    s->pedalDown.reset();
+    s->chasePedal = true; // a new instrument gets the sustain line's pedal position
     return p;
 }
 
@@ -234,6 +236,14 @@ void AudioEngine::audioDeviceStopped()
 
 void AudioEngine::releaseHeld(Slot& s, int offset)
 {
+    // Stop, jump, loop or mute: release the sustain pedal too, and restore the
+    // sustain line's position when the sequencer plays this track again.
+    s.chasePedal = true;
+    if (s.pedalDown.any()) {
+        for (int ch = 0; ch < 16; ++ch)
+            if (s.pedalDown[(size_t)ch]) s.midi.addEvent(juce::MidiMessage::controllerEvent(ch + 1, seq::kSustainController, 0), offset);
+        s.pedalDown.reset();
+    }
     if (s.held.none()) return;
     for (int i = 0; i < 16 * 128; ++i)
         if (s.held[(size_t)i]) s.midi.addEvent(juce::MidiMessage::noteOff(i / 128 + 1, i % 128), offset);
@@ -352,10 +362,43 @@ void AudioEngine::renderChunk(const float* const* in, int numIn, float* const* o
                 for (auto& t : snap->seq.tracks) if (t.trackId == s->id) { ts = &t; break; }
                 if (!ts || ts->isAudio) continue;
                 if (!ts->audible) { releaseHeld(*s, sampleAt); continue; }
+                if (s->seqGeneration != snapshotGeneration) {
+                    // The song was edited while playing: a held note whose note was deleted, moved or shortened
+                    // would never get its note-off - end it now. Put the pedal where the (edited) line is.
+                    s->seqGeneration = snapshotGeneration;
+                    s->chasePedal = true;
+                    if (s->held.any()) {
+                        const auto at = (model::Tick)std::ceil(pos);
+                        for (int i = 0; i < 16 * 128; ++i)
+                            if (s->held[(size_t)i] && !ts->noteSoundingAt(i / 128, i % 128, at)) {
+                                s->midi.addEvent(juce::MidiMessage::noteOff(i / 128 + 1, i % 128), juce::jlimit(0, n - 1, sampleAt));
+                                s->held.reset((size_t)i);
+                            }
+                    }
+                }
+                if (s->chasePedal) {
+                    // after start, jumps and loops (and edits): put the pedal where the sustain line is now
+                    s->chasePedal = false;
+                    if (!ts->sustain.empty()) {
+                        const int v = seq::sustainValueAt(ts->sustain, pos);
+                        const auto ch = (size_t)juce::jlimit(0, 15, ts->channel);
+                        if (v > 0 || s->pedalDown[ch]) {
+                            s->midi.addEvent(juce::MidiMessage::controllerEvent((int)ch + 1, seq::kSustainController, v), juce::jlimit(0, n - 1, sampleAt));
+                            s->pedalDown.set(ch, v > 0);
+                        }
+                    }
+                }
                 ts->forEachInRange(fromT, toT, [&](const seq::SeqEvent& e) {
                     const int off = juce::jlimit(0, n - 1, sampleAt + (int)(((double)e.tick - pos) / tps));
+                    if (e.controller) {
+                        s->midi.addEvent(juce::MidiMessage::controllerEvent(e.channel + 1, e.pitch, e.velocity), off);
+                        if (e.pitch == seq::kSustainController) s->pedalDown.set(e.channel & 15, e.velocity > 0);
+                        return;
+                    }
                     const auto idx = (size_t)(e.channel * 128 + e.pitch);
                     if (e.noteOn) {
+                        // never two voices on one key: synths may end only one of them (hanging note)
+                        if (s->held[idx]) s->midi.addEvent(juce::MidiMessage::noteOff(e.channel + 1, e.pitch), off);
                         s->midi.addEvent(juce::MidiMessage::noteOn(e.channel + 1, e.pitch, (juce::uint8)e.velocity), off);
                         s->held.set(idx);
                     } else if (s->held[idx]) {

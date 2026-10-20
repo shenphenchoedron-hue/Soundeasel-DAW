@@ -193,3 +193,21 @@ TEST(json_numbers_ignore_c_locale)
     }
     std::setlocale(LC_NUMERIC, saved.c_str());
 }
+
+TEST(humanized_flag_roundtrip)
+{
+    Project p;
+    auto& t = p.addMidiTrack("A");
+    Note a{0, 60, 100, 0, 480, -1};
+    Note b{0, 62, 100, 480, 480, -1};
+    b.humanized = true;
+    t.addNote(a);
+    t.addNote(b);
+    Project q;
+    auto r = io::ProjectSerializer::fromString(io::ProjectSerializer::toString(p), q);
+    CHECK(r.ok);
+    auto* qt = q.midiTrack(q.tracks().front()->id());
+    CHECK_EQ(qt->notes().size(), (size_t)2);
+    CHECK(!qt->notes()[0].humanized);
+    CHECK(qt->notes()[1].humanized);
+}

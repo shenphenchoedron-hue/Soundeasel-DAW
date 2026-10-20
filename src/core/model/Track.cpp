@@ -1,5 +1,6 @@
 #include "model/Track.h"
 #include <algorithm>
+#include <unordered_map>
 
 namespace mc::model {
 
@@ -24,17 +25,35 @@ bool MidiTrack::removeNote(NoteId id)
     return true;
 }
 
+namespace {
+void assignClamped(Note& dst, const Note& n)
+{
+    dst = n;
+    dst.pitch = std::clamp(dst.pitch, 0, 127);
+    dst.velocity = std::clamp(dst.velocity, 1, 127);
+    dst.length = std::max<Tick>(1, dst.length);
+    dst.start = std::max<Tick>(0, dst.start);
+}
+} // namespace
+
 bool MidiTrack::updateNote(const Note& n)
 {
     auto it = std::find_if(notes_.begin(), notes_.end(), [&](const Note& x) { return x.id == n.id; });
     if (it == notes_.end()) return false;
-    *it = n;
-    it->pitch = std::clamp(it->pitch, 0, 127);
-    it->velocity = std::clamp(it->velocity, 1, 127);
-    it->length = std::max<Tick>(1, it->length);
-    it->start = std::max<Tick>(0, it->start);
+    assignClamped(*it, n);
     sort();
     return true;
+}
+
+void MidiTrack::updateNotes(const std::vector<Note>& notes)
+{
+    if (notes.empty()) return;
+    std::unordered_map<NoteId, size_t> index;
+    index.reserve(notes_.size());
+    for (size_t i = 0; i < notes_.size(); ++i) index.emplace(notes_[i].id, i);
+    for (auto& n : notes)
+        if (auto it = index.find(n.id); it != index.end()) assignClamped(notes_[it->second], n);
+    sort();
 }
 
 const Note* MidiTrack::findNote(NoteId id) const
@@ -156,9 +175,9 @@ float automationAt(const std::vector<AutomationPoint>& pts, double tick)
     return (float)(a.gain + (b.gain - a.gain) * f);
 }
 
-void normalizeAutomation(std::vector<AutomationPoint>& pts)
+void normalizeAutomation(std::vector<AutomationPoint>& pts, float maxGain)
 {
-    for (auto& p : pts) { p.tick = std::max<Tick>(0, p.tick); p.gain = std::clamp(p.gain, 0.0f, 2.0f); }
+    for (auto& p : pts) { p.tick = std::max<Tick>(0, p.tick); p.gain = std::clamp(p.gain, 0.0f, maxGain); }
     std::stable_sort(pts.begin(), pts.end(), [](const AutomationPoint& a, const AutomationPoint& b) { return a.tick < b.tick; });
 }
 

@@ -1,4 +1,5 @@
 #include "gui/AudioTracksComponent.h"
+#include "gui/AutomationLineEditor.h"
 #include "gui/SettingsComponent.h"
 #include "gui/LevelMeter.h"
 #include "gui/Theme.h"
@@ -52,7 +53,8 @@ public:
         name.setEditable(false, true);
         name.setFont(theme::uiFont(14.0f, true));
         name.setColour(juce::Label::textColourId, tc::text);
-        name.setTooltip("Track name (double-click to rename)");
+        name.setTooltip("Track name (double-click to rename, right-click to copy, paste or duplicate the track)");
+        name.addMouseListener(&nameMenu, false);
         name.onTextChange = [this] { app.changeTrack(id, [&](model::TrackProperties& p) { p.name = name.getText().toStdString(); }); };
 
         mute.setClickingTogglesState(true);
@@ -101,6 +103,7 @@ public:
         inMeter.setInputStyle(true);
         inMeter.setTooltip("Input level (shown while the track is record-enabled or monitoring). Red at the end: the input clipped - click to reset");
         outMeter.setTooltip("Track output level. Red at the top: the signal clipped - click to reset");
+        setupEditor();
         refresh();
     }
 
@@ -236,7 +239,11 @@ public:
     // ---- mouse (lane area only; the card has its own controls)
     void mouseDown(const juce::MouseEvent& e) override
     {
-        if (e.x < owner.cellsX()) return;
+        if (e.x < owner.cellsX()) {
+            // the card: right-click for copy / paste / duplicate / delete
+            if (e.mods.isPopupMenu() && e.x < owner.cardWidth) showTrackMenu(app, id);
+            return;
+        }
         grabKeyboardFocus();
         auto* t = app.project.audioTrack(id);
         if (!t) return;
@@ -262,7 +269,7 @@ public:
 
     void mouseDrag(const juce::MouseEvent& e) override
     {
-        if (line) { lineDrag(e); return; }
+        if (editor.isDragging()) { if (editor.mouseDrag(e.position)) repaint(); return; }
         if (!drag) return;
         auto* t = app.project.audioTrack(id);
         if (!t) return;
@@ -291,7 +298,7 @@ public:
 
     void mouseUp(const juce::MouseEvent&) override
     {
-        if (line) { lineUp(); return; }
+        if (editor.isDragging()) { editor.mouseUp(); repaint(); return; }
         if (!drag) return;
         const auto d = *drag;
         drag.reset();
@@ -305,7 +312,7 @@ public:
         auto* t = app.project.audioTrack(id);
         if (t && t->showVolumeLine) {
             if (e.x >= owner.cellsX()) {
-                const int hit = pointAt(t->volumeAutomation, e.position);
+                const int hit = editor.pointAt(t->volumeAutomation, e.position);
                 mc = hit >= 0 ? juce::MouseCursor::UpDownLeftRightResizeCursor : juce::MouseCursor::UpDownResizeCursor;
             }
             setMouseCursor(mc);
@@ -324,12 +331,7 @@ public:
     {
         if (auto* t = app.project.audioTrack(id); t && t->showVolumeLine) {
             // double-click a split point: remove it
-            if (const int hit = pointAt(t->volumeAutomation, e.position); hit >= 0) {
-                auto pts = t->volumeAutomation;
-                const Tick at = pts[(size_t)hit].tick;
-                std::erase_if(pts, [at](const model::AutomationPoint& q) { return q.tick == at; });
-                app.setVolumeAutomation(id, std::move(pts));
-            }
+            if (const int hit = editor.pointAt(t->volumeAutomation, e.position); hit >= 0) editor.removeSplitPoint(t->volumeAutomation, hit);
             return;
         }
         if (e.x >= owner.cellsX() && !clipAt(e.x)) owner.importDialog(id, owner.tickAtX(e.x));
@@ -349,19 +351,8 @@ public:
     model::ClipId selected = 0;
 
 private:
-    // ---- volume line
-    // The volume line is divided into pieces by split points. A split point is a pair of points at the
-    // same time (left value, right value), so every piece can be moved up/down on its own (steps).
-    struct LineDrag {
-        std::vector<model::AutomationPoint> points, original;
-        std::vector<int> group;    // dragged split point (indices of the points at the same time), or
-        int segA = -1, segB = -1;  // the piece under the mouse: its end points (-1 = open end)
-        juce::Point<float> start;
-        bool moved = false;
-        int axis = 0;              // split point drags: 0 = undecided, 1 = sideways (time), 2 = up/down (level)
-        int point = -1;            // grabbed point, also used for the value display
-    };
-    std::optional<LineDrag> line;
+    // ---- volume line (editing shared with the sustain line: see AutomationLineEditor)
+    AutomationLineEditor editor;
 
     float lineTop() const { return 6.0f; }
     float lineBottom() const { return (float)getHeight() - 7.0f; }
@@ -375,20 +366,22 @@ private:
     float tickToLaneX(double t) const { return (float)(owner.cellsX() + roll.tickToX(t)); }
     double laneXToTick(float x) const { return roll.xToTick(x - owner.cellsX()); }
 
-    const std::vector<model::AutomationPoint>& linePoints(const model::AudioTrack& t) const { return line ? line->points : t.volumeAutomation; }
-
-    int pointAt(const std::vector<model::AutomationPoint>& pts, juce::Point<float> p) const
+    void setupEditor()
     {
-        for (int i = (int)pts.size() - 1; i >= 0; --i)
-            if (p.getDistanceFrom({tickToLaneX((double)pts[(size_t)i].tick), gainToY(pts[(size_t)i].gain)}) < 7.0f) return i;
-        return -1;
+        editor.tickToX = [this](double t) { return tickToLaneX(t); };
+        editor.xToTick = [this](float x) { return laneXToTick(x); };
+        editor.valueToY = [this](float g) { return gainToY(g); };
+        editor.yToValue = [this](float y) { return yToGain(y); };
+        editor.snap = [this](double t) { return roll.snap(t); };
+        editor.valueText = [](float g) { return fader::text(g) + " dB"; };
+        editor.commit = [this](std::vector<model::AutomationPoint> pts) { app.setVolumeAutomation(id, std::move(pts)); };
+        editor.emptyValue = 1.0f;
     }
+
     void drawVolumeLine(juce::Graphics& g, const model::AudioTrack& t, int x0, int x1)
     {
-        const auto& pts = linePoints(t);
         const bool editing = t.showVolumeLine;
-        if (!editing && pts.empty()) return;
-        const auto lineCol = juce::Colour(0xffffd54a);
+        if (!editing && editor.points(t.volumeAutomation).empty()) return;
         if (editing) {
             g.setColour(juce::Colours::black.withAlpha(0.28f)); // clips stay visible but recede
             g.fillRect(x0, 0, x1 - x0, getHeight());
@@ -399,121 +392,14 @@ private:
             g.setFont(theme::uiFont(10.5f, true));
             g.drawText("0 dB", x0 + 4, (int)y0 - 13, 40, 12, juce::Justification::left);
         }
-        juce::Path path;
-        if (pts.empty()) {
-            const float y = gainToY(1.0f);
-            path.startNewSubPath((float)x0, y);
-            path.lineTo((float)x1, y);
-        } else {
-            path.startNewSubPath((float)x0, gainToY(pts.front().gain));
-            for (auto& p : pts) path.lineTo(tickToLaneX((double)p.tick), gainToY(p.gain));
-            path.lineTo((float)x1, gainToY(pts.back().gain));
-        }
-        g.setColour(lineCol.withAlpha(editing ? 1.0f : 0.55f));
-        g.strokePath(path, juce::PathStrokeType(editing ? 2.0f : 1.2f));
-        if (!editing) return;
-        for (size_t i = 0; i < pts.size(); ++i) {
-            const float x = tickToLaneX((double)pts[i].tick), y = gainToY(pts[i].gain);
-            const bool hot = line && ((int)i == line->point || (int)i == line->segA || (int)i == line->segB);
-            g.setColour(hot ? juce::Colours::white : lineCol);
-            g.fillEllipse(x - 4.5f, y - 4.5f, 9.0f, 9.0f);
-            g.setColour(juce::Colours::black.withAlpha(0.6f));
-            g.drawEllipse(x - 4.5f, y - 4.5f, 9.0f, 9.0f, 1.0f);
-        }
-        // value while dragging
-        if (line) {
-            const int i = line->point >= 0 ? line->point : (line->segA >= 0 ? line->segA : line->segB);
-            if (i >= 0 && i < (int)pts.size()) {
-                const float x = tickToLaneX((double)pts[(size_t)i].tick), y = gainToY(pts[(size_t)i].gain);
-                g.setColour(tc::display.withAlpha(0.9f));
-                g.fillRoundedRectangle(x + 8, y - 22, 64, 16, 3.0f);
-                g.setColour(tc::displayText);
-                g.setFont(theme::monoFont(11.5f));
-                g.drawText(fader::text(pts[(size_t)i].gain) + " dB", (int)x + 8, (int)y - 22, 64, 16, juce::Justification::centred);
-            }
-        }
+        editor.paint(g, t.volumeAutomation, (float)x0, (float)x1, juce::Colour(0xffffd54a), editing);
     }
 
     void lineDown(const juce::MouseEvent& e, const model::AudioTrack& t)
     {
-        const auto& pts = t.volumeAutomation;
-        const int hit = pointAt(pts, e.position);
-        if (e.mods.isPopupMenu()) { lineMenu(hit); return; }
-        LineDrag d;
-        d.original = d.points = pts;
-        d.start = e.position;
-        if (hit >= 0) {
-            for (int i = 0; i < (int)pts.size(); ++i)
-                if (pts[(size_t)i].tick == pts[(size_t)hit].tick) d.group.push_back(i);
-            d.point = hit;
-        } else {
-            // the piece of the line under the mouse (anywhere in the lane, no need to hit the line exactly)
-            const double tk = laneXToTick(e.position.x);
-            int b = 0;
-            while (b < (int)pts.size() && (double)pts[(size_t)b].tick <= tk) ++b;
-            d.segA = b - 1;
-            d.segB = b < (int)pts.size() ? b : -1;
-            d.point = d.segA >= 0 ? d.segA : d.segB;
-        }
-        line = d;
+        if (e.mods.isPopupMenu()) { lineMenu(editor.pointAt(t.volumeAutomation, e.position)); return; }
+        editor.mouseDown(e.position, t.volumeAutomation);
         repaint();
-    }
-
-    void lineDrag(const juce::MouseEvent& e)
-    {
-        auto& d = *line;
-        if (!d.moved && e.position.getDistanceFrom(d.start) < 3.0f) return;
-        d.moved = true;
-        d.points = d.original;
-        if (!d.group.empty()) {
-            // The first movement decides: sideways moves the split point in time, up/down changes its level
-            // (the pieces on both sides become ramps: the volume rises or falls towards the point).
-            if (d.axis == 0) {
-                const auto delta = e.position - d.start;
-                d.axis = std::abs(delta.x) > std::abs(delta.y) ? 1 : 2;
-            }
-            if (d.axis == 1) {
-                const int first = d.group.front(), last = d.group.back();
-                const Tick lo = first > 0 ? d.points[(size_t)first - 1].tick : 0;
-                const Tick hi = last + 1 < (int)d.points.size() ? d.points[(size_t)last + 1].tick : std::numeric_limits<Tick>::max();
-                const Tick t = juce::jlimit(lo, hi, roll.snap(laneXToTick(e.position.x)));
-                for (int i : d.group) d.points[(size_t)i].tick = t;
-            } else {
-                // A split point whose two sides are at the same level moves as one point; if it is a step
-                // (two dots), only the grabbed dot moves.
-                bool together = true;
-                for (int i : d.group) together = together && std::abs(d.original[(size_t)i].gain - d.original[(size_t)d.point].gain) < 1.0e-4f;
-                const float g = yToGain(gainToY(d.original[(size_t)d.point].gain) + e.position.y - d.start.y);
-                if (together) for (int i : d.group) d.points[(size_t)i].gain = g;
-                else d.points[(size_t)d.point].gain = g;
-            }
-        } else if (d.points.empty()) {
-            // no split points yet: the whole line moves (one flat level)
-            d.points.push_back({0, yToGain(gainToY(1.0f) + e.position.y - d.start.y)});
-            d.point = 0;
-        } else {
-            // move only this piece: its two end points
-            const float dy = e.position.y - d.start.y;
-            for (int i : {d.segA, d.segB})
-                if (i >= 0) d.points[(size_t)i].gain = yToGain(gainToY(d.original[(size_t)i].gain) + dy);
-        }
-        repaint();
-    }
-
-    void lineUp()
-    {
-        auto d = *line;
-        line.reset();
-        if (d.moved) { app.setVolumeAutomation(id, std::move(d.points)); repaint(); return; }
-        if (!d.group.empty()) { repaint(); return; } // clicked a split point without moving it
-        // a click splits the line here (no change in volume until a piece is moved)
-        auto pts = d.original;
-        const Tick t = roll.snap(laneXToTick(d.start.x));
-        for (auto& p : pts) if (p.tick == t) { repaint(); return; } // already split here
-        const float v = model::automationAt(pts, (double)t);
-        pts.push_back({t, v}); // left side of the split
-        pts.push_back({t, v}); // right side
-        app.setVolumeAutomation(id, std::move(pts));
     }
 
     void lineMenu(int hit)
@@ -529,11 +415,8 @@ private:
             if (!self || r == 0) return;
             auto* t = self->app.project.audioTrack(self->id);
             if (!t) return;
-            if (r == 1 && hit >= 0 && hit < (int)t->volumeAutomation.size()) {
-                auto pts = t->volumeAutomation;
-                const Tick at = pts[(size_t)hit].tick;
-                std::erase_if(pts, [at](const model::AutomationPoint& q) { return q.tick == at; });
-                self->app.setVolumeAutomation(self->id, std::move(pts));
+            if (r == 1) {
+                self->editor.removeSplitPoint(t->volumeAutomation, hit);
             } else if (r == 2) {
                 self->app.setVolumeAutomation(self->id, {});
             } else if (r == 3) {
@@ -738,6 +621,7 @@ private:
     juce::Colour colour{0xff5aae84};
     std::optional<Drag> drag;
     Swatch colourBtn;
+    TrackMenuOnRightClick nameMenu{app, [this] { return id; }}; // before `name`, so it outlives it
     juce::Label name;
     juce::TextButton volBtn{"VOL"}, mute{"M"}, solo{"S"}, delBtn{"X"}, armBtn{juce::String::fromUTF8("\xe2\x97\x8f")}, monBtn{"Mon"}; // ●
     juce::ComboBox inputBox;

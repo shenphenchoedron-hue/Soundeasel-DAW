@@ -64,11 +64,12 @@ private:
     void scrollBarMoved(juce::ScrollBar*, double) override;
     void changeListenerCallback(juce::ChangeBroadcaster*) override;
 
-    class Timeline; class Keyboard; class Grid; class VelocityLane;
+    class Timeline; class Keyboard; class Grid; class VelocityLane; class SustainLane;
     std::unique_ptr<Timeline> timeline;
     std::unique_ptr<Keyboard> keyboard;
     std::unique_ptr<Grid> grid;
     std::unique_ptr<VelocityLane> velocity;
+    std::unique_ptr<SustainLane> sustain;
     juce::ScrollBar hbar{false}, vbar{true};
     double lastPlayheadX = -1;
     double lastPlayheadPos = 0; // engine position at previous refresh, to detect jumps

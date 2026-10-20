@@ -122,6 +122,9 @@ private:
         std::vector<plugins::InstrumentPlugin*> inserts; // effect plugins (not owned)
         juce::MidiBuffer fxMidi;                          // always empty: effects get no notes
         std::bitset<16 * 128> held;    // notes sent by the sequencer
+        std::bitset<16> pedalDown;     // channels whose sustain pedal the sequencer holds down
+        bool chasePedal = true;        // send the sustain line's pedal position at the next sequencer step
+        std::uint64_t seqGeneration = 0; // snapshot the held notes and pedal were last checked against
         float gainL = 0, gainR = 0;    // audio thread: current (smoothed) strip gains
         std::atomic<float> peakL{0}, peakR{0}, peakIn{0}, gainReduction{0};
         // channel strip effects (audio thread; prepared on the message/device thread)

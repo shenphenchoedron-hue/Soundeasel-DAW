@@ -36,20 +36,88 @@ void LevelMeter::push(float left, float right)
     const auto before = std::make_tuple(ch[0].level, ch[1].level, ch[0].hold, ch[1].hold);
     update(ch[0], left);
     update(ch[1], stereo_ ? right : left);
-    if (before != std::make_tuple(ch[0].level, ch[1].level, ch[0].hold, ch[1].hold)) repaint();
+    bool readoutChanged = false;
+    if (showPeak_) {
+        // Peak value readout: jumps up at once, holds ~2 s, then follows the signal down.
+        const float v = std::max(left, stereo_ ? right : left);
+        const float db = v > 0.0f ? juce::Decibels::gainToDecibels(v, -100.0f) : -100.0f;
+        const float old = shownPeakDb;
+        if (db >= shownPeakDb) { shownPeakDb = db; peakHoldFrames = 60; }
+        else if (--peakHoldFrames <= 0) shownPeakDb = std::max(db, shownPeakDb - 1.5f);
+        readoutChanged = std::abs(old - shownPeakDb) >= 0.05f;
+    }
+    if (readoutChanged || before != std::make_tuple(ch[0].level, ch[1].level, ch[0].hold, ch[1].hold)) repaint();
+}
+
+void LevelMeter::paintPeakValue(juce::Graphics& g, juce::Rectangle<float> area) const
+{
+    const bool clipped = ch[0].clip || ch[1].clip;
+    juce::String value = shownPeakDb <= (float)fader::kMinDb ? juce::String("-inf") : juce::String(shownPeakDb, 1);
+    if (shownPeakDb > 0.05f) value = "+" + value;
+    g.setFont(theme::uiFont(9.5f, true));
+    g.setColour(theme::col::textDim);
+    g.drawText("PEAK", area.removeFromLeft(28.0f), juce::Justification::centredLeft);
+    g.setFont(theme::monoFont(11.0f));
+    g.setColour(clipped || shownPeakDb >= 0.0f ? juce::Colour(0xffe45b5b) : theme::col::text);
+    g.drawText(value + " dB", area, juce::Justification::centredRight);
+}
+
+void LevelMeter::paintScale(juce::Graphics& g, juce::Rectangle<float> bars, juce::Rectangle<float> area) const
+{
+    g.setFont(theme::uiFont(8.5f));
+    const float marks[] = {-48.0f, -24.0f, -12.0f, -6.0f, 0.0f};
+    float lastRight = -1000.0f;
+    for (float db : marks) {
+        const float x = bars.getX() + bars.getWidth() * (db - (float)fader::kMinDb) / (float)(fader::kMaxDb - fader::kMinDb);
+        g.setColour(theme::col::textDim.withAlpha(0.8f));
+        g.fillRect(x - 0.5f, area.getY(), 1.0f, 3.0f);
+        const juce::String text = db == 0.0f ? "0 dB" : juce::String((int)db);
+        const float w = db == 0.0f ? 24.0f : 18.0f;
+        const float left = juce::jlimit(area.getX(), area.getRight() - w, x - w / 2);
+        if (left < lastRight + 2.0f) continue; // no room for this label
+        g.drawText(text, juce::Rectangle<float>(left, area.getY() + 2.0f, w, area.getHeight() - 2.0f), juce::Justification::centred);
+        lastRight = left + w;
+    }
 }
 
 void LevelMeter::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
-    g.setColour(juce::Colour(0xff1b2027));
-    g.fillRoundedRectangle(r, 2.0f);
+    juce::Rectangle<float> scaleArea;
+    if (!vertical_) {
+        if (showPeak_) paintPeakValue(g, r.removeFromRight(92.0f).withTrimmedLeft(6.0f)); // fits "PEAK -60.0 dB"
+        if (showScale_) scaleArea = r.removeFromBottom(std::min(11.0f, r.getHeight() / 2));
+        if (showScale_ && stereo_) { // which bar is which channel
+            auto lr = r.removeFromLeft(12.0f);
+            g.setFont(theme::uiFont(10.5f, true));
+            g.setColour(theme::col::text);
+            g.drawText("L", lr.removeFromTop(lr.getHeight() / 2), juce::Justification::centredLeft);
+            g.drawText("R", lr, juce::Justification::centredLeft);
+        }
+    }
+    if (!scaleArea.isEmpty()) paintScale(g, r.reduced(1.0f, 0.0f), scaleArea);
     const int n = stereo_ ? 2 : 1;
+    // Labelled stereo meters (track cards): two separate bars with a clear gap, so L and R are
+    // visible even when silent. Otherwise one dark box with the bars inside.
+    const bool separate = !vertical_ && showScale_ && stereo_;
+    if (!separate) {
+        g.setColour(juce::Colour(0xff1b2027));
+        g.fillRoundedRectangle(r, 2.0f);
+    }
     const float zeroDb = (float)((0.0 - fader::kMinDb) / (fader::kMaxDb - fader::kMinDb));
     for (int i = 0; i < n; ++i) {
-        juce::Rectangle<float> bar = vertical_
-            ? juce::Rectangle<float>(r.getX() + 1 + i * (r.getWidth() - 2) / n, r.getY() + 1, (r.getWidth() - 2) / n - (n > 1 ? 1 : 0), r.getHeight() - 2)
-            : juce::Rectangle<float>(r.getX() + 1, r.getY() + 1 + i * (r.getHeight() - 2) / n, r.getWidth() - 2, (r.getHeight() - 2) / n - (n > 1 ? 1 : 0));
+        juce::Rectangle<float> bar;
+        if (separate) {
+            const float gapPx = 3.0f, h = (r.getHeight() - gapPx) / 2;
+            auto box = juce::Rectangle<float>(r.getX(), r.getY() + i * (h + gapPx), r.getWidth(), h);
+            g.setColour(juce::Colour(0xff1b2027));
+            g.fillRoundedRectangle(box, 2.0f);
+            bar = box.reduced(1.0f);
+        } else {
+            bar = vertical_
+                ? juce::Rectangle<float>(r.getX() + 1 + i * (r.getWidth() - 2) / n, r.getY() + 1, (r.getWidth() - 2) / n - (n > 1 ? 1 : 0), r.getHeight() - 2)
+                : juce::Rectangle<float>(r.getX() + 1, r.getY() + 1 + i * (r.getHeight() - 2) / n, r.getWidth() - 2, (r.getHeight() - 2) / n - (n > 1 ? 1 : 0));
+        }
         const auto& c = ch[i];
         const auto lo = input_ ? juce::Colour(0xffe08f4f) : juce::Colour(0xff3fae94);
         juce::ColourGradient grad = vertical_

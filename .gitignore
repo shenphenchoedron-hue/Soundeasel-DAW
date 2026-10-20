@@ -1,3 +1,7 @@
 build*/
 external/JUCE
 __pycache__/
+
+# local test build copied to the project folder, macOS Finder files
+/Soundeasel DAW.app/
+.DS_Store

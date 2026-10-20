@@ -1,4 +1,5 @@
 #include "io/MidiFile.h"
+#include "sequencer/Sequence.h"
 #include <algorithm>
 #include <cmath>
 #include <deque>
@@ -77,11 +78,14 @@ std::vector<std::uint8_t> MidiFile::write(const Project& p)
         std::vector<Ev> evs;
         evs.push_back({0, -2, metaText(0x03, m->name)});
         if (!m->plugin.name.empty()) evs.push_back({0, -1, metaText(0x04, m->plugin.name)});
-        for (auto& n : m->notes()) {
-            const auto ch = (std::uint8_t)((n.channel >= 0 ? n.channel : m->channel) & 15);
-            evs.push_back({n.end(), 0, {(std::uint8_t)(0x80 | ch), (std::uint8_t)n.pitch, 0}});
-            evs.push_back({n.start, 1, {(std::uint8_t)(0x90 | ch), (std::uint8_t)n.pitch, (std::uint8_t)n.velocity}});
+        // overlapping notes on one key are resolved like in playback (no hanging notes in other programs)
+        for (auto& e : seq::noteEvents(*m)) {
+            if (e.noteOn) evs.push_back({e.tick, 2, {(std::uint8_t)(0x90 | e.channel), e.pitch, e.velocity}});
+            else evs.push_back({e.tick, 0, {(std::uint8_t)(0x80 | e.channel), e.pitch, 0}});
         }
+        // sustain pedal line -> CC 64 (between note-offs and note-ons at the same tick)
+        for (auto& cv : seq::sustainValues(m->sustain))
+            evs.push_back({cv.tick, 1, {(std::uint8_t)(0xB0 | (m->channel & 15)), (std::uint8_t)seq::kSustainController, (std::uint8_t)cv.value}});
         writeTrack(out, evs);
     }
     return out;
@@ -122,6 +126,8 @@ MidiImportResult MidiFile::read(const std::vector<std::uint8_t>& d, Project& pro
             std::string name;
             std::map<int, std::vector<Note>> byChannel;
             std::map<int, std::deque<Note>> open; // key = ch*128+pitch
+            std::map<int, std::vector<AutomationPoint>> pedal; // sustain (CC 64) per channel, as steps
+            std::map<int, int> pedalValue;
             Tick now = 0;
             std::uint8_t running = 0;
             while (t.i < t.end) {
@@ -158,7 +164,15 @@ MidiImportResult MidiFile::read(const std::vector<std::uint8_t>& d, Project& pro
                     auto& q = open[ch * 128 + a];
                     if (!q.empty()) { Note n = q.front(); q.pop_front(); n.length = std::max<Tick>(1, at - n.start); byChannel[ch].push_back(n); }
                 }
-                // controllers/program/pitchbend are currently not modelled
+                else if (hi == 0xB0 && a == seq::kSustainController) {
+                    auto& prev = pedalValue[ch]; // pedal up before the first CC 64
+                    if (b != prev) {
+                        pedal[ch].push_back({at, (float)prev / 127.0f}); // a step: old value, then new value
+                        pedal[ch].push_back({at, (float)b / 127.0f});
+                        prev = b;
+                    }
+                }
+                // other controllers/program/pitchbend are currently not modelled
             }
             const Tick endTick = (Tick)std::llround((double)now * scale);
             for (auto& [key, q] : open)
@@ -170,6 +184,7 @@ MidiImportResult MidiFile::read(const std::vector<std::uint8_t>& d, Project& pro
                 auto& mt = project.addMidiTrack(tname);
                 mt.channel = ch;
                 for (auto& n : notes) mt.addNote(n);
+                if (auto it = pedal.find(ch); it != pedal.end()) { mt.sustain = it->second; normalizeAutomation(mt.sustain, 1.0f); }
                 ++r.tracksCreated;
             }
         }

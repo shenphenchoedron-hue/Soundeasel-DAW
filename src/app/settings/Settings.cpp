@@ -89,6 +89,17 @@ void Settings::setExportSetting(const juce::String& key, const juce::String& val
     file().saveIfNeeded();
 }
 
+double Settings::humanizeSetting(const juce::String& key, double fallback) const
+{
+    return file().getDoubleValue("humanize." + key, fallback);
+}
+
+void Settings::setHumanizeSetting(const juce::String& key, double value)
+{
+    file().setValue("humanize." + key, value);
+    file().saveIfNeeded();
+}
+
 juce::File Settings::encoderPath() const
 {
     const auto p = file().getValue("encoderPath");

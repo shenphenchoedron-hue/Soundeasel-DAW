@@ -342,7 +342,12 @@ public:
         }
     }
 
-    void mouseDown(const juce::MouseEvent&) override { if (id) app.selectTrack(id); }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        if (!id) return;
+        app.selectTrack(id);
+        if (e.mods.isPopupMenu()) showTrackMenu(app, id); // copy / paste / duplicate
+    }
 
 private:
     // Mains only (track strips use connectTrackSliders): live while dragging, one undo step.

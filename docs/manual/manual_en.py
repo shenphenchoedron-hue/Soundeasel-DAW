@@ -103,10 +103,10 @@ def content_en(m):
                      "(settings, plugins, sounds, manual, about). On a Mac the menu is at the top of the screen."],
         ["Transport bar", "Play, stop, record, loop, metronome, count-in, tempo, time signature and undo."],
         ["Chord panel", "Root, scale, chord mode, modifier buttons, the current chord and next-chord suggestions."],
-        ["Track list (left)", "All tracks with name, colour, mute/solo, volume, pan, channel and instrument."],
+        ["Track list (left)", "All tracks with name, colour, mute/solo, volume, pan, channel, peak meter and instrument."],
         ["Editor bar", "Above the piano roll: the <b>Zoom</b> buttons (chapter 8), <b>Grid</b> and <b>Snap</b>."],
         ["Piano roll (right)", "The notes of the active track, with the timeline on top, the keyboard on the left and "
-                               "the velocity lane at the bottom."],
+                               "the sustain pedal and velocity lanes at the bottom."],
         ["Step sequencers (bottom)", "Every step sequencer track, below the piano roll and always visible: the setup card "
                                      "on the left, the step rows aligned with the piano roll grid (chapter 9)."],
     ], [38, 127])
@@ -148,7 +148,29 @@ def content_en(m):
         ["Volume / Pan", "The sliders for volume and panning (left/right)."],
         ["Instrument button", "Shows the instrument's name. Click it to choose an instrument (see chapter 7)."],
         ["<b>E</b> (editor)", "Opens the plugin's own window, if it has one (e.g. Kontakt)."],
+        ["<b>Touch</b>", "Opens <b>Human Touch</b>: gives the notes small random variations (see chapter 8)."],
+        ["Peak meter", "Two bars, <b>L</b> (left) over <b>R</b> (right), with a dB scale. They move when the track makes "
+                       "sound. <b>PEAK</b> on the right shows the loudest peak in dB (0 dB is the maximum). Red means the "
+                       "signal clipped – click the meter to reset it."],
     ], [38, 127])
+    h2("Copy and paste tracks")
+    p("Right-click a track (an instrument track, an audio track, a step sequencer card or a mixer strip):")
+    table(["Menu item", "What it does"], [
+        ["<b>Copy track</b>", "Copies the whole track: name, colour, volume, pan, mute/solo, EQ, compressor, reverb, "
+                              "effect plugins and the instrument with their current settings, notes, step patterns, "
+                              "audio clips, the volume line and the sustain pedal line."],
+        ["<b>Paste track after this</b>", "Inserts the copy right after this track. The name gets “(copy)”."],
+        ["<b>Duplicate track</b>", "Copy and paste in one go. What you copied before stays on the clipboard."],
+        ["<b>Human Touch...</b>", "Instrument tracks only (see chapter 8)."],
+        ["<b>Delete track</b>", "Deletes the track (can be undone)."],
+    ], [48, 117])
+    bullets([
+        "Copying a line of a step sequencer copies the whole step sequencer. The copy is a new step sequencer.",
+        "A pasted audio track is never record-enabled or monitoring. It uses the same audio files.",
+        "<b>Edit → Copy active track</b> (⌘/Ctrl+Shift+C), <b>Paste track</b> (⌘/Ctrl+Shift+V) and <b>Duplicate active "
+        "track</b> (⌘/Ctrl+D) work on the active piano roll track. <b>+ Track → Paste track</b> adds the copy at the end.",
+        "You can paste a copied track into another project. Pasting is one undo step.",
+    ])
     h2("Colours")
     p("Click a track's colour button to open the <b>colour picker</b>:")
     bullets([
@@ -241,6 +263,44 @@ def content_en(m):
     p("The lane at the bottom shows each note's velocity as a vertical line. Click and drag across the lines to change "
       "it. If some notes are selected, only the selected notes change. Soft notes are drawn slightly darker in the "
       "piano roll.")
+    h2("Sustain pedal")
+    p("The lane above the velocity lane is the track's <b>sustain pedal</b> (MIDI CC 64): <b>100 %</b> (top) is pedal "
+      "down and <b>0 %</b> (bottom) is pedal up. Without points the line lies at 0 %. The area where the pedal is down is "
+      "shaded orange.")
+    table(["Action", "How"], [
+        ["Add a point", "<b>Click</b> on the line (it follows Snap and the grid)."],
+        ["Pedal down or up for a stretch", "<b>Drag a piece</b> of the line (between two points) up or down. Only that "
+                                           "piece moves, so the pedal changes in a step."],
+        ["Sloping line", "<b>Drag a point</b> up or down: the line slopes on both sides of it, so the pedal goes down or "
+                         "up gradually. Drag a point sideways to move it in time."],
+        ["Remove a point", "<b>Double-click</b> it, or right-click → <b>Delete point</b>."],
+        ["Remove the line", "Right-click → <b>Remove the whole sustain line</b>."],
+    ], [45, 120])
+    bullets([
+        "The value is shown in % while you drag. Every change can be undone.",
+        "The built-in sounds treat 50 % and above as pedal down. Plugins that support half-pedalling get the whole slope.",
+        "The pedal is released when you stop, jump or loop, and put back where the line is when playback continues.",
+        "A track without a sustain line never touches the pedal, so the pedal on your MIDI keyboard still works.",
+        "The line is saved in the project and included in song and MIDI export. CC 64 in imported MIDI files becomes a "
+        "sustain line.",
+    ])
+    h2("Human Touch")
+    p("Press <b>Touch</b> on an instrument track (or right-click → <b>Human Touch...</b>, or <b>Edit → Human Touch</b>) "
+      "to give the notes already in the piano roll small random variations, so programmed parts sound less mechanical.")
+    table(["Setting", "Meaning"], [
+        ["<b>Notes affected</b>", "How many notes are changed. They are picked at random."],
+        ["<b>Placement</b>", "How far a note may move earlier or later. 100 % = up to one 1/16 note. The window shows "
+                             "the value in milliseconds at the current tempo."],
+        ["<b>Length</b>", "How much a note may get shorter or longer, in % of its own length."],
+        ["<b>Velocity</b>", "How much a note may get softer or louder (off by default)."],
+        ["<b>Only notes that have not had Human Touch yet</b>", "On: notes changed before keep their place, so you can "
+                                                               "add more notes and use Human Touch again on just the new ones."],
+    ], [55, 110])
+    bullets([
+        "Click <b>Apply Human Touch</b>. One run is one undo step. The window remembers your values.",
+        "Notes on the same key never overlap or change order, so no clicks or hanging notes. A note that would run "
+        "into the next one is shortened.",
+    ])
     h2("Zoom and scroll")
     table(["Mouse / trackpad", "Effect"], [
         ["Scroll", "Scroll up/down (and sideways with a trackpad)."],
@@ -387,7 +447,7 @@ def content_en(m):
         ["<b>MP3</b>", "Plays everywhere; small files. 320 kbps sounds practically like the original."],
         ["<b>OGG Vorbis</b>", "Free, open format with small files and very good sound."],
         ["<b>M4A (AAC)</b>", "As used by Apple Music and iTunes; small files with very good sound."],
-        ["<b>MIDI</b>", "Notes only, no sound – for other music and notation programs."],
+        ["<b>MIDI</b>", "Notes and sustain pedal, no sound – for other music and notation programs."],
     ], [35, 130])
     bullets([
         "<b>Range</b>: the whole song, or only the part between the loop markers.",
@@ -436,6 +496,8 @@ def content_en(m):
         ["⌘/Ctrl+E", "Export song (WAV, MP3, OGG, FLAC, MIDI, M4A)"],
         ["⌘/Ctrl+A", "Select all notes"],
         ["⌘/Ctrl+C / X / V", "Copy / cut / paste notes"],
+        ["⌘/Ctrl+Shift+C / V", "Copy active track / paste track"],
+        ["⌘/Ctrl+D", "Duplicate active track"],
         ["Delete / Backspace", "Delete selected notes"],
         ["↑ / ↓", "Transpose selected notes by a semitone"],
         ["Shift+↑ / ↓", "Transpose selected notes by an octave"],

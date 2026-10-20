@@ -7,6 +7,7 @@
 #include "input/ChordInputProcessor.h"
 #include "midi/MidiDeviceManager.h"
 #include "model/Commands.h"
+#include "model/Humanize.h"
 #include "plugins/PluginManager.h"
 #include "recording/Recorder.h"
 #include "sequencer/Timing.h"
@@ -68,6 +69,22 @@ public:
     void endTrackEdit(model::TrackId);
     bool isEditingTrack(model::TrackId id) const { return trackEdits.count(id) > 0; }
 
+    // ---- copy & paste of whole tracks (settings, instrument + effects with their
+    // current state, notes, step patterns, audio clips, volume line).
+    // A step sequencer line copies the whole step sequencer.
+    void copyTrack(model::TrackId);
+    bool hasCopiedTrack() const { return !trackClipboard.empty(); }
+    juce::String copiedTrackName() const;            // for menus: "Piano", "Drums (3 lines)"
+    // Pastes after `after` (after its whole step sequencer for a line); 0 = at the end.
+    void pasteTrack(model::TrackId after);
+    void duplicateTrack(model::TrackId);             // pastes a copy right after it; leaves the clipboard alone
+    // Track the Edit menu copies: the active piano roll track.
+    model::TrackId trackForEditMenu() const { return project.activeTrack; }
+
+    // ---- Human Touch: random variation of placement/length/velocity of a track's notes (one undo step).
+    // Returns the number of notes changed.
+    int humanizeTrack(model::TrackId, const model::HumanizeSettings&);
+
     // ---- audio tracks
     model::TrackId addAudioTrack(const std::string& name = {});  // returns the new track id
     // Imports an audio file as a clip at `at`. track == 0 creates a new audio track.
@@ -77,6 +94,7 @@ public:
     void setTrackMonitor(model::TrackId, bool);   // hear the input (not undoable)
     void setVolumeAutomation(model::TrackId, std::vector<model::AutomationPoint> after); // undoable
     void setShowVolumeLine(model::TrackId, bool); // show/edit the volume line in the lane
+    void setSustain(model::TrackId, std::vector<model::AutomationPoint> after); // MIDI track sustain pedal line, undoable
     void setTrackInput(model::TrackId, int input, bool stereo);
     juce::StringArray inputNames() const;         // active inputs of the audio device, index = AudioTrack::input
     std::shared_ptr<const audio::AudioFileData> audioFile(const std::string& path); // nullptr while loading or missing
@@ -181,6 +199,10 @@ private:
     void syncEngine();
     void addImportedTracks(const model::Project& imported); // undoable; adopts tempo + time signature
     void captureAllPluginStates();
+    void captureTrackPluginStates(model::Track&);   // instrument + effect states into the track's references
+    // Copies of a track (a step sequencer line: all lines of its step sequencer) with current plugin states.
+    std::vector<std::unique_ptr<model::Track>> snapshotTracks(model::TrackId);
+    void pasteTracks(const std::vector<std::unique_ptr<model::Track>>&, model::TrackId after);
     void handleMidi(const juce::MidiMessage&);
     void sendLive(const std::vector<input::OutputEvent>&);
     void closeEditor(model::TrackId);
@@ -190,6 +212,7 @@ private:
     void captureInsertStates(model::Track&);
     void editInserts(model::TrackId, const std::function<void(std::vector<model::PluginReference>&)>&);
 
+    std::vector<std::unique_ptr<model::Track>> trackClipboard; // snapshots taken by copyTrack
     std::map<model::TrackId, audio::AudioEngine::Levels> lastLevels;
     std::map<model::TrackId, model::TrackProperties> trackEdits; // volume/pan gestures in progress
     struct Take { model::TrackId track; juce::File file; };

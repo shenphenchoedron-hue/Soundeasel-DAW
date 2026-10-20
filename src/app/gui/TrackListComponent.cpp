@@ -1,4 +1,5 @@
 #include "gui/TrackListComponent.h"
+#include "gui/HumanTouchDialog.h"
 #include "gui/PluginBrowser.h"
 #include "plugins/BasicSynth.h"
 #include "plugins/SoundFontPlayer.h"
@@ -10,7 +11,7 @@
 namespace mc::gui {
 
 namespace {
-constexpr int kRowHeight = 90;
+constexpr int kRowHeight = 116;
 
 // Track colour picker shown in a call-out: colour field + sliders, preset
 // palette and user swatches (saved in the user settings, not the project).
@@ -222,13 +223,55 @@ void showInstrumentMenu(AppContext& app, model::TrackId id, juce::Component& tar
     });
 }
 
+void showTrackMenu(AppContext& app, model::TrackId id)
+{
+    auto* t = app.project.track(id);
+    if (!t) return;
+    auto* mt = dynamic_cast<model::MidiTrack*>(t);
+    const bool stepSeq = mt && mt->isStepLine();
+    const bool pianoRoll = mt && !stepSeq;
+    juce::PopupMenu m;
+    m.addSectionHeader(stepSeq ? juce::String("Step sequencer") : juce::String(t->name));
+    m.addItem(1, stepSeq ? "Copy step sequencer" : "Copy track");
+    m.addItem(2, app.hasCopiedTrack() ? "Paste track after this: " + app.copiedTrackName() : juce::String("Paste track after this"), app.hasCopiedTrack());
+    m.addItem(3, stepSeq ? "Duplicate step sequencer" : "Duplicate track");
+    if (pianoRoll) {
+        m.addSeparator();
+        m.addItem(4, "Human Touch...", !mt->notes().empty());
+    }
+    m.addSeparator();
+    m.addItem(5, stepSeq ? "Delete step sequencer" : "Delete track");
+    m.showMenuAsync(juce::PopupMenu::Options().withMousePosition(), [&app, id, stepSeq](int r) {
+        auto* tr = app.project.track(id);
+        if (!tr || r == 0) return;
+        if (r == 1) app.copyTrack(id);
+        else if (r == 2) app.pasteTrack(id);
+        else if (r == 3) app.duplicateTrack(id);
+        else if (r == 4) HumanTouchDialog::show(app, id);
+        else if (r == 5) {
+            const juce::String what = stepSeq ? "this step sequencer and all its lines" : "\"" + juce::String(tr->name) + "\"";
+            auto* mtr = app.project.midiTrack(id);
+            const auto group = mtr ? mtr->stepGroup : 0;
+            juce::AlertWindow::showOkCancelBox(juce::MessageBoxIconType::QuestionIcon, stepSeq ? "Delete step sequencer" : "Delete track",
+                "Delete " + what + "? (can be undone)", "Delete", "Cancel", nullptr,
+                juce::ModalCallbackFunction::create([&app, id, group, stepSeq](int ok) {
+                    if (ok != 1) return;
+                    if (stepSeq) app.deleteStepSequencer(group); else app.deleteTrack(id);
+                }));
+        }
+    });
+}
+
 class TrackListComponent::Row final : public juce::Component {
 public:
     Row(AppContext& a, model::TrackId i) : app(a), id(i)
     {
-        for (juce::Component* c : std::initializer_list<juce::Component*>{&colourBtn, &name, &mute, &solo, &volume, &pan, &channel, &pluginBtn, &editBtn, &meter})
+        for (juce::Component* c : std::initializer_list<juce::Component*>{&colourBtn, &name, &mute, &solo, &volume, &pan, &channel, &pluginBtn, &editBtn, &humanBtn, &meter})
             addAndMakeVisible(c);
-        meter.setTooltip("Track level: moves when this track makes sound. Red: the signal clipped - click to reset");
+        meter.setTooltip("Peak meter: how loud this track plays right now (left/right). The bar moves when the track makes sound; "
+                         "the number is the loudest peak in dB (0 dB = the maximum). Red: the signal clipped - click the meter to reset");
+        meter.setShowScale(true);
+        meter.setShowPeakValue(true);
         name.setEditable(false, true);
         name.setFont(theme::uiFont(14.0f, true));
         name.setColour(juce::Label::textColourId, theme::col::text);
@@ -260,6 +303,8 @@ public:
         colourBtn.onClick = [this] { showColourMenu(); };
         editBtn.setTooltip("Open plugin editor");
         editBtn.onClick = [this] { app.openPluginEditor(id); };
+        humanBtn.setTooltip("Human Touch: random variation of placement, length and velocity of the notes on this track");
+        humanBtn.onClick = [this] { app.selectTrack(id); HumanTouchDialog::show(app, id); };
         refresh();
     }
 
@@ -282,6 +327,7 @@ public:
         theme::setStyle(pluginBtn, missing ? theme::styleDanger : theme::styleSelector);
         auto* inst = app.engine->instrument(id);
         editBtn.setEnabled(inst && inst->hasEditor());
+        humanBtn.setEnabled(!t->notes().empty());
         active = app.project.activeTrack == id;
         colour = t->colour;
         colourBtn.colour = colour ? juce::Colour(colour) : theme::col::border;
@@ -329,15 +375,21 @@ public:
         l2.removeFromRight(gap);
         volume.setBounds(l2);
         r.removeFromTop(3);
-        meter.setBounds(r.removeFromTop(6).withTrimmedLeft(6).withTrimmedRight(80));
+        meter.setBounds(r.removeFromTop(32).withTrimmedLeft(2)); // bars (L over R) + dB scale
         r.removeFromTop(gapS);
         auto l3 = r.removeFromTop(22);
         editBtn.setBounds(l3.removeFromRight(30));
         l3.removeFromRight(gapS);
+        humanBtn.setBounds(l3.removeFromRight(52));
+        l3.removeFromRight(gapS);
         pluginBtn.setBounds(l3);
     }
 
-    void mouseDown(const juce::MouseEvent&) override { app.selectTrack(id); }
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        app.selectTrack(id);
+        if (e.mods.isPopupMenu()) showTrackMenu(app, id);
+    }
     void updateMeter() { const auto l = app.levels(id); meter.push(l.left, l.right); }
 
 private:
@@ -382,7 +434,7 @@ private:
     std::uint32_t colour = 0;
     Swatch colourBtn;
     juce::Label name;
-    juce::TextButton mute{"M"}, solo{"S"}, pluginBtn, editBtn{"E"};
+    juce::TextButton mute{"M"}, solo{"S"}, pluginBtn, editBtn{"E"}, humanBtn{"Touch"};
     juce::Slider volume{juce::Slider::LinearHorizontal, juce::Slider::NoTextBox};
     juce::Slider pan{juce::Slider::LinearHorizontal, juce::Slider::NoTextBox};
     juce::ComboBox channel;
@@ -405,12 +457,15 @@ TrackListComponent::TrackListComponent(AppContext& a) : app(a)
         m.addItem(1, "Instrument (piano roll)");
         m.addItem(2, "Step sequencer (drums / patterns)");
         m.addItem(3, "Audio track (record or import audio)");
+        m.addSeparator();
+        m.addItem(4, app.hasCopiedTrack() ? "Paste track: " + app.copiedTrackName() : juce::String("Paste track (copy a track first: right-click it)"), app.hasCopiedTrack());
         juce::Component::SafePointer<TrackListComponent> self(this);
         m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&addBtn), [self](int r) {
             if (!self) return;
             if (r == 1) self->app.addTrack();
             else if (r == 2) self->app.addStepSequencer();
             else if (r == 3) self->app.addAudioTrack();
+            else if (r == 4) self->app.pasteTrack(0);
         });
     };
     delBtn.onClick = [this] {

@@ -88,9 +88,17 @@ std::string ProjectSerializer::toString(const Project& p, const std::string& bas
                                           {"name", m->plugin.name}, {"manufacturer", m->plugin.manufacturer},
                                           {"state", m->plugin.stateBase64}, {"bypassed", m->plugin.bypassed}});
             Json::Array notes;
-            for (auto& n : m->notes())
-                notes.push_back(Json::Array{(long long)n.start, (long long)n.length, n.pitch, n.velocity, n.channel});
+            for (auto& n : m->notes()) {
+                Json::Array jn{(long long)n.start, (long long)n.length, n.pitch, n.velocity, n.channel};
+                if (n.humanized) jn.push_back(1); // optional 6th value: already had Human Touch
+                notes.push_back(jn);
+            }
             jt.set("notes", notes);
+            if (!m->sustain.empty()) {
+                Json::Array sus;
+                for (auto& v : m->sustain) sus.push_back(Json::Array{(long long)v.tick, v.gain});
+                jt.set("sustain", sus);
+            }
             if (m->isStepLine()) {
                 Json::Array steps;
                 for (auto v : m->step.steps) steps.push_back((int)v);
@@ -201,8 +209,14 @@ LoadResult ProjectSerializer::fromString(const std::string& text, Project& out, 
                 n.pitch = (int)a[2].num(60);
                 n.velocity = (int)a[3].num(100);
                 n.channel = a.size() > 4 ? (int)a[4].num(-1) : -1;
+                n.humanized = a.size() > 5 && a[5].num(0) != 0;
                 m->addNote(n);
             }
+            for (auto& jv : jt["sustain"].arr()) {
+                auto& v = jv.arr();
+                if (v.size() >= 2) m->sustain.push_back({tick(v[0], 0), (float)v[1].num(0.0)});
+            }
+            normalizeAutomation(m->sustain, 1.0f);
             if (const auto g = (std::uint64_t)jt["stepGroup"].num(0); g > 0) {
                 auto& js = jt["step"];
                 m->stepGroup = g;

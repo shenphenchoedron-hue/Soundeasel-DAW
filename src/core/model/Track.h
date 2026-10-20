@@ -35,6 +35,8 @@ public:
     virtual ~Track() = default;
     virtual TrackKind kind() const = 0;
     virtual std::unique_ptr<Track> clone() const = 0;
+    // Exact copy with another id (copy & paste of tracks).
+    std::unique_ptr<Track> cloneAs(TrackId newId) const { auto c = clone(); c->id_ = newId; return c; }
 
     TrackId id() const { return id_; }
 
@@ -58,6 +60,18 @@ protected:
 
 // Gives every insert without an id one that is unique within the list.
 void assignInsertIds(std::vector<PluginReference>&);
+
+// A point of an automation line (e.g. the volume line of an audio track).
+struct AutomationPoint {
+    Tick tick = 0;
+    float gain = 1.0f;   // linear, 0 .. 2 (+6 dB)
+    bool operator==(const AutomationPoint&) const = default;
+};
+// Value of an automation line at `tick`: linear between points, flat before the
+// first and after the last point. 1.0 (no change) when there are no points.
+float automationAt(const std::vector<AutomationPoint>&, double tick);
+// Sorts by tick and clamps gains to 0..maxGain (points must stay in time order).
+void normalizeAutomation(std::vector<AutomationPoint>&, float maxGain = 2.0f);
 
 // Step sequencer line. A step sequencer is a group of MidiTracks sharing the
 // same stepGroup id; every track is one line with its own instrument. The
@@ -101,10 +115,16 @@ public:
     bool isStepLine() const { return stepGroup != 0; }
     void regenerateStepNotes();      // replaces all notes with the pattern
 
+    // Sustain pedal line (CC 64): `gain` is the pedal position 0 (up) .. 1 (down), linear
+    // between points like the volume line (a split point is two points at the same tick).
+    // Empty = the song never touches the pedal (a pedal on the MIDI keyboard still works).
+    std::vector<AutomationPoint> sustain;
+
     const std::vector<Note>& notes() const { return notes_; }
     NoteId addNote(Note n);                 // assigns id if 0; keeps notes sorted by start
     bool removeNote(NoteId id);
     bool updateNote(const Note& n);         // matched by id
+    void updateNotes(const std::vector<Note>& notes); // several at once (matched by id), sorted once
     const Note* findNote(NoteId id) const;
     void clearNotes() { notes_.clear(); }
     NoteId nextNoteId() const { return nextId_; }
@@ -132,17 +152,6 @@ struct AudioClip {
     bool operator==(const AudioClip&) const = default;
 };
 
-// A point of an automation line (e.g. the volume line of an audio track).
-struct AutomationPoint {
-    Tick tick = 0;
-    float gain = 1.0f;   // linear, 0 .. 2 (+6 dB)
-    bool operator==(const AutomationPoint&) const = default;
-};
-// Value of an automation line at `tick`: linear between points, flat before the
-// first and after the last point. 1.0 (no change) when there are no points.
-float automationAt(const std::vector<AutomationPoint>&, double tick);
-// Sorts by tick and clamps gains (points must stay in time order).
-void normalizeAutomation(std::vector<AutomationPoint>&);
 
 class AudioTrack final : public Track {
 public:

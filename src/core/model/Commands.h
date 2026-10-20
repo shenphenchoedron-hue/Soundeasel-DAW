@@ -100,6 +100,29 @@ private:
     std::unique_ptr<Track> stash_;
 };
 
+// Inserts copies of tracks (copy & paste, duplicate). Everything is copied: settings,
+// instrument and effect plugins (with the state stored in their references), notes,
+// step patterns, audio clips and the volume line. The copies get new track ids, are
+// inserted at `index` (in order) and copied step sequencer lines form new step
+// sequencers (lines that shared a step sequencer still share one). Copied audio
+// tracks are not record-enabled or monitoring, so pasting never starts feedback.
+class PasteTracksCommand : public Command {
+public:
+    PasteTracksCommand(std::vector<std::unique_ptr<Track>> sources, int index, std::string name = "Paste track")
+        : sources_(std::move(sources)), index_(index), name_(std::move(name)) {}
+    void apply(Project&) override;
+    void revert(Project&) override;
+    std::string name() const override { return name_; }
+    const std::vector<TrackId>& trackIds() const { return ids_; }
+private:
+    std::vector<std::unique_ptr<Track>> sources_; // first apply only
+    int index_;
+    std::string name_;
+    std::vector<TrackId> ids_;
+    std::vector<std::unique_ptr<Track>> stash_;   // the copies while undone
+    TrackId prevActive_ = 0;
+};
+
 struct TrackProperties {
     std::string name;
     bool mute = false, solo = false;
@@ -152,6 +175,19 @@ public:
     void apply(Project& p) override { if (auto* t = p.audioTrack(track_)) t->volumeAutomation = after_; }
     void revert(Project& p) override { if (auto* t = p.audioTrack(track_)) t->volumeAutomation = before_; }
     std::string name() const override { return "Edit volume line"; }
+private:
+    TrackId track_;
+    std::vector<AutomationPoint> before_, after_;
+};
+
+// Replaces the sustain pedal line of a MIDI track.
+class SetSustainCommand : public Command {
+public:
+    SetSustainCommand(TrackId t, std::vector<AutomationPoint> before, std::vector<AutomationPoint> after)
+        : track_(t), before_(std::move(before)), after_(std::move(after)) {}
+    void apply(Project& p) override { if (auto* t = p.midiTrack(track_)) t->sustain = after_; }
+    void revert(Project& p) override { if (auto* t = p.midiTrack(track_)) t->sustain = before_; }
+    std::string name() const override { return "Edit sustain pedal"; }
 private:
     TrackId track_;
     std::vector<AutomationPoint> before_, after_;

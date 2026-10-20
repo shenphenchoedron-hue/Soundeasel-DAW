@@ -1,4 +1,5 @@
 #include "Test.h"
+#include "io/MidiFile.h"
 #include "io/ProjectSerializer.h"
 #include "model/Commands.h"
 #include "sequencer/Sequence.h"
@@ -308,4 +309,67 @@ TEST(insert_ids_tell_copies_of_one_plugin_apart)
     CHECK_EQ(qi[0].uid, v[0].uid);
     CHECK_EQ(qi[1].uid, v[1].uid);
     CHECK(qi[2].uid != qi[0].uid && qi[2].uid != qi[1].uid && qi[2].uid != 0);
+}
+
+TEST(sustain_line_values_steps_and_ramps)
+{
+    using namespace mc;
+    using model::AutomationPoint;
+    CHECK(seq::sustainValues({}).empty());
+    CHECK_EQ(seq::sustainValueAt({}, 100), 0);
+    // up until 960, step down (100 %), ramp up again from 1920 to 2880
+    std::vector<AutomationPoint> pts{{960, 0.0f}, {960, 1.0f}, {1920, 1.0f}, {2880, 0.0f}};
+    auto v = seq::sustainValues(pts);
+    CHECK(v.size() > 3);
+    CHECK((v[0] == seq::ControllerValue{0, 0}));
+    CHECK((v[1] == seq::ControllerValue{960, 127}));
+    CHECK_EQ(v.back().tick, (model::Tick)2880);
+    CHECK_EQ(v.back().value, 0);
+    for (size_t i = 1; i < v.size(); ++i) {
+        CHECK(v[i].tick > v[i - 1].tick);          // one value per tick, in time order
+        CHECK(v[i].value != v[i - 1].value);       // only changes
+        if (v[i].tick > 1920) CHECK(v[i].value < v[i - 1].value); // the ramp releases the pedal gradually
+    }
+    CHECK_EQ(seq::sustainValueAt(pts, 2400), 64);
+    CHECK_EQ(seq::sustainValueAt(pts, 500), 0);
+}
+
+TEST(sustain_line_in_snapshot_undo_save_and_midi)
+{
+    using namespace mc;
+    using namespace mc::model;
+    Project p;
+    UndoStack u(p);
+    auto& t = p.addMidiTrack("Piano");
+    t.channel = 2;
+    t.addNote({0, 60, 100, 0, 480, -1});
+    std::vector<AutomationPoint> line{{0, 1.0f}, {1920, 1.0f}, {1920, 0.0f}};
+    u.perform(std::make_unique<SetSustainCommand>(t.id(), t.sustain, line));
+    CHECK(t.sustain == line);
+
+    auto s = seq::SequenceSnapshot::build(p);
+    const auto& ev = s.tracks[0].events;
+    int cc = 0;
+    for (auto& e : ev) if (e.controller) { ++cc; CHECK_EQ((int)e.pitch, 64); CHECK_EQ((int)e.channel, 2); }
+    CHECK_EQ(cc, 2);                       // down at 0, up at 1920
+    CHECK(ev[0].controller);               // pedal before the first note-on at tick 0
+    CHECK(ev[1].noteOn);
+    CHECK_EQ(s.lengthTicks, (Tick)1920);   // the song lasts until the pedal is released
+    CHECK(s.tracks[0].sustain == line);
+
+    // save / load
+    Project q;
+    CHECK(io::ProjectSerializer::fromString(io::ProjectSerializer::toString(p), q).ok);
+    CHECK(q.midiTrack(q.tracks().front()->id())->sustain == line);
+
+    // MIDI file: CC 64 is written and read back as a step line
+    Project m;
+    CHECK(io::MidiFile::read(io::MidiFile::write(p), m, false).ok);
+    auto* mt = m.midiTrack(m.tracks().front()->id());
+    CHECK_EQ(seq::sustainValueAt(mt->sustain, 100), 127);
+    CHECK_EQ(seq::sustainValueAt(mt->sustain, 2000), 0);
+
+    u.undo();
+    CHECK(t.sustain.empty());
+    CHECK(seq::SequenceSnapshot::build(p).tracks[0].events.size() == 2);
 }

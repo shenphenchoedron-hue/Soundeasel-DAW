@@ -45,6 +45,8 @@ public:
     void insertTrack(int index, std::unique_ptr<Track> t);  // used by undo
     std::unique_ptr<Track> removeTrack(TrackId id);
     TrackId nextTrackId() const { return nextTrackId_; }
+    TrackId allocateTrackId() { return nextTrackId_++; }  // id for a track created outside add*Track (pasted copies)
+    std::uint64_t unusedStepGroup() const;                // step sequencer group id no track uses yet
 
     TrackId activeTrack = 0;
 

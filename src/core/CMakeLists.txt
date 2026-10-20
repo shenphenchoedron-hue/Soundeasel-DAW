@@ -5,6 +5,7 @@ add_library(mc_core STATIC
     model/Track.cpp
     model/Project.cpp
     model/Commands.cpp
+    model/Humanize.cpp
     sequencer/Sequence.cpp
     input/ChordInputProcessor.cpp
     io/Json.cpp

@@ -48,6 +48,9 @@ public:
     juce::String exportSetting(const juce::String& key, const juce::String& fallback) const;
     void setExportSetting(const juce::String& key, const juce::String& value);
     juce::File encoderPath() const;
+    // Human Touch: the last values in the Human Touch window ("humanize.<key>").
+    double humanizeSetting(const juce::String& key, double fallback) const;
+    void setHumanizeSetting(const juce::String& key, double value);
     void setEncoderPath(const juce::File&);
 
 private:

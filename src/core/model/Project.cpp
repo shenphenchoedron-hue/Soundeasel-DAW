@@ -63,6 +63,14 @@ AudioTrack& Project::addAudioTrack(const std::string& name)
     return ref;
 }
 
+std::uint64_t Project::unusedStepGroup() const
+{
+    std::uint64_t g = 0;
+    for (auto& t : tracks_)
+        if (auto* m = dynamic_cast<const MidiTrack*>(t.get())) g = std::max(g, m->stepGroup);
+    return g + 1;
+}
+
 AudioTrack* Project::audioTrack(TrackId id) const { return dynamic_cast<AudioTrack*>(track(id)); }
 
 void Project::insertTrack(int index, std::unique_ptr<Track> t)

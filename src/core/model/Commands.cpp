@@ -1,4 +1,6 @@
 #include "model/Commands.h"
+#include <algorithm>
+#include <map>
 
 namespace mc::model {
 
@@ -70,12 +72,12 @@ void RemoveNotesCommand::revert(Project& p)
 
 void ModifyNotesCommand::apply(Project& p)
 {
-    if (auto* t = p.midiTrack(track_)) for (auto& n : after_) t->updateNote(n);
+    if (auto* t = p.midiTrack(track_)) t->updateNotes(after_);
 }
 
 void ModifyNotesCommand::revert(Project& p)
 {
-    if (auto* t = p.midiTrack(track_)) for (auto& n : before_) t->updateNote(n);
+    if (auto* t = p.midiTrack(track_)) t->updateNotes(before_);
 }
 
 // ---- tracks
@@ -99,6 +101,46 @@ void RemoveTrackCommand::revert(Project& p)
 {
     if (stash_) p.insertTrack(index_, std::move(stash_));
     p.activeTrack = prevActive_;
+}
+
+void PasteTracksCommand::apply(Project& p)
+{
+    prevActive_ = p.activeTrack;
+    std::vector<std::unique_ptr<Track>> copies;
+    if (ids_.empty()) {
+        std::map<std::uint64_t, std::uint64_t> groups; // source step sequencer -> new one
+        std::uint64_t nextGroup = p.unusedStepGroup();
+        for (auto& src : sources_) {
+            if (!src) continue;
+            auto c = src->cloneAs(p.allocateTrackId());
+            if (auto* m = dynamic_cast<MidiTrack*>(c.get()); m && m->isStepLine()) {
+                auto [it, fresh] = groups.try_emplace(m->stepGroup, nextGroup);
+                if (fresh) ++nextGroup;
+                m->stepGroup = it->second;
+                m->regenerateStepNotes();
+            }
+            if (auto* a = dynamic_cast<AudioTrack*>(c.get())) { a->armed = false; a->monitor = false; }
+            ids_.push_back(c->id());
+            copies.push_back(std::move(c));
+        }
+        sources_.clear();
+    } else {
+        copies = std::move(stash_);
+        stash_.clear();
+    }
+    int at = index_ < 0 ? (int)p.tracks().size() : std::min(index_, (int)p.tracks().size());
+    for (auto& c : copies) p.insertTrack(at++, std::move(c));
+    // The piano roll shows the first pasted instrument track.
+    for (auto id : ids_)
+        if (auto* m = p.midiTrack(id); m && !m->isStepLine()) { p.activeTrack = id; break; }
+}
+
+void PasteTracksCommand::revert(Project& p)
+{
+    stash_.clear();
+    for (auto id : ids_)
+        if (auto t = p.removeTrack(id)) stash_.push_back(std::move(t));
+    if (p.track(prevActive_)) p.activeTrack = prevActive_;
 }
 
 TrackProperties TrackProperties::from(const Track& t)

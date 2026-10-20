@@ -1,5 +1,6 @@
 #include "gui/MainComponent.h"
 #include "gui/ExportDialog.h"
+#include "gui/HumanTouchDialog.h"
 #include "gui/PluginBrowser.h"
 #include "gui/SettingsComponent.h"
 #include "gui/Theme.h"
@@ -10,6 +11,7 @@ namespace {
 enum MenuId {
     New = 1, Open, Save, SaveAs, ImportMidi, ImportMusicXml, ExportMidi, ExportMusicXml, Quit, ImportAudio, ExportSong,
     Undo = 100, Redo, Cut, Copy, Paste, Delete, SelectAll, AddTrack, DeleteTrack, AddStepSeq, AddAudioTrack,
+    CopyTrack, PasteTrack, DuplicateTrack, Humanize,
     Settings = 200, Plugins, Rescan, SoundsFolder, Manual, About, TestSound,
     ShowMixer = 300, ShowPianoRoll
 };
@@ -245,6 +247,9 @@ bool MainComponent::keyPressed(const juce::KeyPress& k)
     if (cmd && k.getKeyCode() == 'O') { openDialog(); return true; }
     if (cmd && k.getKeyCode() == 'E') { ExportDialog::show(app); return true; }
     if (cmd && k.getKeyCode() == 'N') { menuItemSelected(New, 0); return true; }
+    if (cmd && shift && k.getKeyCode() == 'C') { menuItemSelected(CopyTrack, 0); return true; }
+    if (cmd && shift && k.getKeyCode() == 'V') { menuItemSelected(PasteTrack, 0); return true; }
+    if (cmd && !shift && k.getKeyCode() == 'D') { menuItemSelected(DuplicateTrack, 0); return true; }
     if (!cmd && k.getKeyCode() == 'R') { app.toggleRecord(); return true; }
     if (!cmd && k.getKeyCode() == 'K') { app.setMetronome(!app.metronome()); return true; }
     if (!cmd && k.getKeyCode() == 'L') { app.setLoop(!app.project.loopEnabled, app.project.loopStart, app.project.loopEnd); return true; }
@@ -288,6 +293,18 @@ juce::PopupMenu MainComponent::getMenuForIndex(int idx, const juce::String&)
         m.addItem(AddStepSeq, "Add step sequencer track");
         m.addItem(AddAudioTrack, "Add audio track");
         m.addItem(DeleteTrack, "Delete active track", app.project.track(app.project.activeTrack) != nullptr);
+        m.addSeparator();
+        const bool hasTrack = app.project.track(app.trackForEditMenu()) != nullptr;
+        auto shortcut = [](juce::PopupMenu::Item i, int key, bool shiftKey) {
+            i.shortcutKeyDescription = juce::KeyPress(key, juce::ModifierKeys::commandModifier | (shiftKey ? juce::ModifierKeys::shiftModifier : 0), 0)
+                                           .getTextDescriptionWithIcons();
+            return i;
+        };
+        m.addItem(shortcut(juce::PopupMenu::Item("Copy active track (with settings, instrument, effects and notes)").setID(CopyTrack).setEnabled(hasTrack), 'c', true));
+        m.addItem(shortcut(juce::PopupMenu::Item(app.hasCopiedTrack() ? "Paste track: " + app.copiedTrackName() : juce::String("Paste track"))
+                               .setID(PasteTrack).setEnabled(app.hasCopiedTrack()), 'v', true));
+        m.addItem(shortcut(juce::PopupMenu::Item("Duplicate active track").setID(DuplicateTrack).setEnabled(hasTrack), 'd', false));
+        m.addItem(Humanize, "Human Touch (active track)...", app.activeMidiTrack() != nullptr && !app.activeMidiTrack()->notes().empty());
     } else if (idx == 2) {
         m.addItem(ShowPianoRoll, "Piano roll  (F2)", true, rollVisible);
         m.addItem(ShowMixer, "Mixer  (F3)", true, mixerVisible);
@@ -332,6 +349,10 @@ void MainComponent::menuItemSelected(int id, int)
         case ShowPianoRoll: setPianoRollVisible(!rollVisible); break;
         case TestSound: app.playTestTone(); break;
         case DeleteTrack: app.deleteTrack(app.project.activeTrack); break;
+        case CopyTrack: app.copyTrack(app.trackForEditMenu()); break;
+        case PasteTrack: app.pasteTrack(app.trackForEditMenu()); break;
+        case DuplicateTrack: app.duplicateTrack(app.trackForEditMenu()); break;
+        case Humanize: HumanTouchDialog::show(app, app.project.activeTrack); break;
         case Settings: SettingsComponent::show(app); break;
         case Plugins: {
             const auto tid = app.project.activeTrack;

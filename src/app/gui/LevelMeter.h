@@ -29,14 +29,28 @@ public:
     // Peak levels (linear) since the previous call; called by a ~30 Hz UI timer.
     void push(float left, float right);
     void setInputStyle(bool in) { if (input_ != in) { input_ = in; repaint(); } } // red-ish tint for input levels
+    // Horizontal meters: dB scale under the bars (-48 .. 0 dB) and the peak value ("Peak -6.2 dB")
+    // at the right, so it is clear what the meter shows; stereo meters label the bars L and R.
+    // Needs about 30 px height (bars + scale) and 90 px extra width.
+    void setShowScale(bool on) { showScale_ = on; repaint(); }
+    void setShowPeakValue(bool on) { showPeak_ = on; repaint(); }
     void paint(juce::Graphics&) override;
-    void mouseDown(const juce::MouseEvent&) override { ch[0].clip = ch[1].clip = false; repaint(); } // reset the clip LED
+    void mouseDown(const juce::MouseEvent&) override // reset the clip LED and the peak value
+    {
+        ch[0].clip = ch[1].clip = false;
+        shownPeakDb = -100.0f;
+        repaint();
+    }
 
 private:
     struct Channel { float level = 0, hold = 0; int holdFrames = 0; bool clip = false; };
     static float toNorm(float gain);
     void update(Channel&, float v);
-    bool vertical_, stereo_, input_ = false;
+    void paintPeakValue(juce::Graphics&, juce::Rectangle<float>) const;
+    void paintScale(juce::Graphics&, juce::Rectangle<float> bars, juce::Rectangle<float> area) const;
+    bool vertical_, stereo_, input_ = false, showScale_ = false, showPeak_ = false;
+    float shownPeakDb = -100.0f; // value in the readout (held, falls back slowly)
+    int peakHoldFrames = 0;
     Channel ch[2];
 };
 

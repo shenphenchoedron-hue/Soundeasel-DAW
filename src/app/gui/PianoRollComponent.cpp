@@ -1,4 +1,5 @@
 #include "gui/PianoRollComponent.h"
+#include "gui/AutomationLineEditor.h"
 #include "sequencer/Timing.h"
 #include "theory/ChordEngine.h"
 #include "gui/Theme.h"
@@ -12,6 +13,7 @@ namespace {
 constexpr int kKeyboardWidth = PianoRollComponent::kKeyboardWidth;
 constexpr int kTimelineHeight = 26;
 constexpr int kVelocityHeight = 64;
+constexpr int kSustainHeight = 56;
 constexpr int kScrollbar = PianoRollComponent::kScrollbarWidth;
 
 bool isBlackKey(int p) { const int pc = p % 12; return pc == 1 || pc == 3 || pc == 6 || pc == 8 || pc == 10; }
@@ -543,6 +545,122 @@ private:
     std::vector<Note> before;
 };
 
+// ============================================================ Sustain pedal lane
+// The track's sustain pedal line (CC 64): 100 % = pedal down, 0 % = pedal up.
+// Click to add a split point, drag a piece up/down, drag a point for a ramp.
+class PianoRollComponent::SustainLane final : public juce::Component, public juce::SettableTooltipClient {
+public:
+    explicit SustainLane(PianoRollComponent& r) : roll(r)
+    {
+        editor.tickToX = [this](double t) { return (float)roll.tickToX(t); };
+        editor.xToTick = [this](float x) { return roll.xToTick(x); };
+        editor.valueToY = [this](float v) { return valueToY(v); };
+        editor.yToValue = [this](float y) { return yToValue(y); };
+        editor.snap = [this](double t) { return roll.snap(t); };
+        editor.valueText = [](float v) { return juce::String(juce::roundToInt(v * 100.0f)) + " %"; };
+        editor.commit = [this](std::vector<model::AutomationPoint> pts) { roll.app.setSustain(track, std::move(pts)); };
+        editor.emptyValue = 0.0f; // no line: pedal up
+        setTooltip("Sustain pedal: 100 % = pedal down, 0 % = pedal up.\n"
+                   "Click to add a point, drag a piece of the line up/down.\n"
+                   "Drag a point up/down for a sloping line, sideways to move it in time.\n"
+                   "Double-click a point to remove it, right-click for more.");
+        setRepaintsOnMouseActivity(false);
+    }
+
+    void paint(juce::Graphics& g) override
+    {
+        g.fillAll(tc::velLaneBg);
+        g.setColour(tc::gridBeat);
+        g.drawHorizontalLine(0, 0, (float)getWidth());
+        auto* t = roll.app.activeMidiTrack();
+        if (!t) return;
+        // bar lines, so pedal changes can be placed against the music
+        const Tick bar = seq::ticksPerBar(roll.app.project.timeSig);
+        g.setColour(tc::gridSub);
+        for (Tick b = std::max<Tick>(0, (Tick)roll.xToTick(0) / bar * bar); roll.tickToX((double)b) < getWidth(); b += bar)
+            g.drawVerticalLine((int)roll.tickToX((double)b), 1.0f, (float)getHeight());
+        const float dashes[] = {3.0f, 4.0f};
+        g.setColour(juce::Colours::white.withAlpha(0.18f));
+        for (float v : {0.0f, 1.0f}) g.drawDashedLine({0.0f, valueToY(v), (float)getWidth(), valueToY(v)}, dashes, 2, 1.0f);
+        g.setFont(theme::uiFont(10.0f, true));
+        g.setColour(juce::Colours::white.withAlpha(0.35f));
+        g.drawText("down", 4, (int)valueToY(1.0f) + 1, 40, 11, juce::Justification::left);
+        g.drawText("up", 4, (int)valueToY(0.0f) - 12, 40, 11, juce::Justification::left);
+
+        const auto colour = juce::Colour(0xffe5a742);
+        const auto& pts = editor.points(t->sustain);
+        if (!pts.empty()) {
+            // shade where the pedal is (partly) down
+            juce::Path fill;
+            const float x1 = (float)getWidth(), base = valueToY(0.0f);
+            fill.startNewSubPath(0.0f, base);
+            fill.lineTo(0.0f, valueToY(pts.front().gain));
+            for (auto& p : pts) fill.lineTo((float)roll.tickToX((double)p.tick), valueToY(p.gain));
+            fill.lineTo(x1, valueToY(pts.back().gain));
+            fill.lineTo(x1, base);
+            fill.closeSubPath();
+            g.setColour(colour.withAlpha(0.18f));
+            g.fillPath(fill);
+        }
+        editor.paint(g, t->sustain, 0.0f, (float)getWidth(), colour, true);
+    }
+
+    void mouseDown(const juce::MouseEvent& e) override
+    {
+        auto* t = roll.app.activeMidiTrack();
+        if (!t) return;
+        track = t->id();
+        if (e.mods.isPopupMenu()) { showMenu(editor.pointAt(t->sustain, e.position)); return; }
+        editor.mouseDown(e.position, t->sustain);
+        repaint();
+    }
+    void mouseDrag(const juce::MouseEvent& e) override { if (editor.mouseDrag(e.position)) repaint(); }
+    void mouseUp(const juce::MouseEvent&) override
+    {
+        if (!editor.isDragging()) return;
+        if (!roll.app.project.midiTrack(track)) { editor.cancel(); return; }
+        editor.mouseUp();
+        repaint();
+    }
+    void mouseDoubleClick(const juce::MouseEvent& e) override
+    {
+        auto* t = roll.app.activeMidiTrack();
+        if (!t) return;
+        track = t->id();
+        if (const int hit = editor.pointAt(t->sustain, e.position); hit >= 0) editor.removeSplitPoint(t->sustain, hit);
+    }
+    void mouseMove(const juce::MouseEvent& e) override
+    {
+        auto* t = roll.app.activeMidiTrack();
+        const bool onPoint = t && editor.pointAt(t->sustain, e.position) >= 0;
+        setMouseCursor(onPoint ? juce::MouseCursor::UpDownLeftRightResizeCursor : juce::MouseCursor::UpDownResizeCursor);
+    }
+
+private:
+    float valueToY(float v) const { return (float)getHeight() - 6.0f - juce::jlimit(0.0f, 1.0f, v) * ((float)getHeight() - 12.0f); }
+    float yToValue(float y) const { return juce::jlimit(0.0f, 1.0f, ((float)getHeight() - 6.0f - y) / ((float)getHeight() - 12.0f)); }
+
+    void showMenu(int hit)
+    {
+        juce::PopupMenu m;
+        m.addSectionHeader("Sustain pedal");
+        m.addItem(1, "Delete point", hit >= 0);
+        m.addItem(2, "Remove the whole sustain line");
+        juce::Component::SafePointer<SustainLane> self(this);
+        m.showMenuAsync(juce::PopupMenu::Options().withMousePosition(), [self, hit](int r) {
+            if (!self || r == 0) return;
+            auto* t = self->roll.app.project.midiTrack(self->track);
+            if (!t) return;
+            if (r == 1) self->editor.removeSplitPoint(t->sustain, hit);
+            else if (r == 2) self->roll.app.setSustain(self->track, {});
+        });
+    }
+
+    PianoRollComponent& roll;
+    AutomationLineEditor editor;
+    model::TrackId track = 0;
+};
+
 // ============================================================ PianoRollComponent
 PianoRollComponent::PianoRollComponent(AppContext& a) : app(a)
 {
@@ -550,8 +668,9 @@ PianoRollComponent::PianoRollComponent(AppContext& a) : app(a)
     keyboard = std::make_unique<Keyboard>(*this);
     grid = std::make_unique<Grid>(*this);
     velocity = std::make_unique<VelocityLane>(*this);
+    sustain = std::make_unique<SustainLane>(*this);
     for (juce::Component* c : {(juce::Component*)timeline.get(), (juce::Component*)keyboard.get(),
-                               (juce::Component*)grid.get(), (juce::Component*)velocity.get()})
+                               (juce::Component*)grid.get(), (juce::Component*)sustain.get(), (juce::Component*)velocity.get()})
         addAndMakeVisible(c);
     addAndMakeVisible(hbar);
     addAndMakeVisible(vbar);
@@ -575,6 +694,8 @@ void PianoRollComponent::paint(juce::Graphics& g)
     g.setColour(juce::Colour(0xff8f9aa6));
     g.setFont(theme::uiFont(11.0f));
     g.drawText("Vel", 0, getHeight() - kScrollbar - kVelocityHeight, kKeyboardWidth, 16, juce::Justification::centred);
+    g.drawText("Sustain", 0, getHeight() - kScrollbar - kVelocityHeight - kSustainHeight, kKeyboardWidth, 16, juce::Justification::centred);
+    g.drawText("pedal", 0, getHeight() - kScrollbar - kVelocityHeight - kSustainHeight + 14, kKeyboardWidth, 14, juce::Justification::centred);
 }
 
 void PianoRollComponent::resized()
@@ -587,6 +708,8 @@ void PianoRollComponent::resized()
     hbar.setBounds(bottom.withTrimmedLeft(kKeyboardWidth).withTrimmedRight(kScrollbar));
     auto vel = r.removeFromBottom(kVelocityHeight);
     velocity->setBounds(vel.withTrimmedLeft(kKeyboardWidth).withTrimmedRight(kScrollbar));
+    auto sus = r.removeFromBottom(kSustainHeight);
+    sustain->setBounds(sus.withTrimmedLeft(kKeyboardWidth).withTrimmedRight(kScrollbar));
     vbar.setBounds(r.removeFromRight(kScrollbar));
     keyboard->setBounds(r.removeFromLeft(kKeyboardWidth));
     grid->setBounds(r);
@@ -679,7 +802,7 @@ void PianoRollComponent::refreshPlayhead()
     lastPlayheadPos = pos;
     if (app.engine->isPlaying() || jumped) {
         const double visT = grid->getWidth() / pxPerTick;
-        if (pos > scrollX + visT * 0.95 || pos < scrollX) { scrollX = std::max(0.0, pos - visT * 0.05); updateScrollbars(); grid->repaint(); timeline->repaint(); velocity->repaint(); if (onViewChanged) onViewChanged(); }
+        if (pos > scrollX + visT * 0.95 || pos < scrollX) { scrollX = std::max(0.0, pos - visT * 0.05); updateScrollbars(); grid->repaint(); timeline->repaint(); velocity->repaint(); sustain->repaint(); if (onViewChanged) onViewChanged(); }
     }
     const double x = tickToX(pos);
     if (x != lastPlayheadX || app.isRecording()) {
@@ -698,7 +821,7 @@ void PianoRollComponent::copySelection()
     app.clipboard.clear();
     Tick first = std::numeric_limits<Tick>::max();
     for (auto id : selection) if (auto* n = t->findNote(id)) { app.clipboard.push_back(*n); first = std::min(first, n->start); }
-    for (auto& n : app.clipboard) { n.start -= first; n.id = 0; }
+    for (auto& n : app.clipboard) { n.start -= first; n.id = 0; n.humanized = false; } // pasted notes count as new for Human Touch
 }
 
 void PianoRollComponent::paste()
@@ -736,9 +859,11 @@ bool PianoRollComponent::keyPressed(const juce::KeyPress& k)
     const bool cmd = k.getModifiers().isCommandDown();
     if (k == juce::KeyPress::deleteKey || k == juce::KeyPress::backspaceKey) { deleteSelection(); return true; }
     if (cmd && k.getKeyCode() == 'A') { selectAll(); return true; }
-    if (cmd && k.getKeyCode() == 'C') { copySelection(); return true; }
-    if (cmd && k.getKeyCode() == 'X') { copySelection(); deleteSelection(); return true; }
-    if (cmd && k.getKeyCode() == 'V') { paste(); return true; }
+    // Ctrl/Cmd+Shift+C / V copy and paste whole tracks (handled by the main window).
+    const bool shift = k.getModifiers().isShiftDown();
+    if (cmd && !shift && k.getKeyCode() == 'C') { copySelection(); return true; }
+    if (cmd && !shift && k.getKeyCode() == 'X') { copySelection(); deleteSelection(); return true; }
+    if (cmd && !shift && k.getKeyCode() == 'V') { paste(); return true; }
     // Zoom: + / - horizontal (time)
     if (!cmd && (k.getTextCharacter() == '+' || k.getKeyCode() == juce::KeyPress::numberPadAdd)) { zoomInH(); return true; }
     if (!cmd && (k.getTextCharacter() == '-' || k.getKeyCode() == juce::KeyPress::numberPadSubtract)) { zoomOutH(); return true; }

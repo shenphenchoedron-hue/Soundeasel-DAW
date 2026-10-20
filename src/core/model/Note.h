@@ -15,6 +15,7 @@ struct Note {
     Tick start = 0;
     Tick length = kPPQ;
     int channel = -1;         // -1 = use track channel, otherwise 0..15
+    bool humanized = false;   // already changed by Human Touch (it can skip these notes)
 
     Tick end() const { return start + length; }
     bool operator==(const Note&) const = default;

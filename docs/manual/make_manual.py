@@ -232,10 +232,10 @@ def content_da():
                       "(indstillinger, plugins, lyde, manual, om programmet). På Mac ligger menuen øverst på skærmen."],
         ["Transportlinje", "Afspil, stop, optag, loop, metronom, count-in, tempo, taktart og fortryd."],
         ["Akkordpanel", "Grundtone, skala, akkordtilstand, modifier-knapper, den aktuelle akkord og forslag til næste akkord."],
-        ["Sporliste (venstre)", "Alle spor med navn, farve, mute/solo, lydstyrke, panorering, kanal og instrument."],
+        ["Sporliste (venstre)", "Alle spor med navn, farve, mute/solo, lydstyrke, panorering, kanal, peakmeter og instrument."],
         ["Editorlinje", "Over piano roll: <b>Zoom</b>-knapperne (kapitel 8), <b>Grid</b> og <b>Snap</b>."],
         ["Piano roll (højre)", "Tonerne på det aktive spor, med tidslinje øverst, klaviatur til venstre og "
-                               "velocity-felt (anslagsstyrke) nederst."],
+                               "sustain-pedal og velocity-felt (anslagsstyrke) nederst."],
         ["Step sequencere (nederst)", "Alle step sequencer-spor, under piano roll og altid synlige: opsætningskortet "
                                       "til venstre, trinrækkerne på linje med piano roll-gitteret (kapitel 9)."],
     ], [38, 127])
@@ -277,7 +277,29 @@ def content_da():
         ["Lydstyrke / Pan", "Skyderne for lydstyrke og panorering (venstre/højre)."],
         ["Instrumentknap", "Viser instrumentets navn. Klik for at vælge instrument (se kapitel 7)."],
         ["<b>E</b> (editor)", "Åbner pluginets eget vindue, hvis det har et (fx Kontakt)."],
+        ["<b>Touch</b>", "Åbner <b>Human Touch</b>: giver tonerne små tilfældige variationer (se kapitel 8)."],
+        ["Peakmeter", "To bjælker, <b>L</b> (venstre) over <b>R</b> (højre), med en dB-skala. De bevæger sig, når sporet "
+                      "spiller. <b>PEAK</b> til højre viser det højeste niveau i dB (0 dB er maksimum). Rødt betyder, at "
+                      "signalet har clippet – klik på meteret for at nulstille."],
     ], [38, 127])
+    h2("Kopiér og indsæt spor")
+    p("Højreklik på et spor (et instrumentspor, et lydspor, et step sequencer-kort eller en kanal i mixeren):")
+    table(["Menupunkt", "Funktion"], [
+        ["<b>Copy track</b>", "Kopierer hele sporet: navn, farve, lydstyrke, pan, mute/solo, EQ, kompressor, rumklang, "
+                              "effekt-plugins og instrumentet med deres aktuelle indstillinger, toner, step-mønstre, "
+                              "lydklip, volumelinjen og sustain-linjen."],
+        ["<b>Paste track after this</b>", "Indsætter kopien lige efter dette spor. Navnet får “(copy)”."],
+        ["<b>Duplicate track</b>", "Kopiér og indsæt i ét. Det, du kopierede før, bliver liggende i udklipsholderen."],
+        ["<b>Human Touch...</b>", "Kun instrumentspor (se kapitel 8)."],
+        ["<b>Delete track</b>", "Sletter sporet (kan fortrydes)."],
+    ], [48, 117])
+    bullets([
+        "Kopierer du en linje i en step sequencer, kopieres hele step sequenceren. Kopien er en ny step sequencer.",
+        "Et indsat lydspor er aldrig klar til optagelse og har ikke medhør slået til. Det bruger de samme lydfiler.",
+        "<b>Edit → Copy active track</b> (⌘/Ctrl+Shift+C), <b>Paste track</b> (⌘/Ctrl+Shift+V) og <b>Duplicate active "
+        "track</b> (⌘/Ctrl+D) virker på det aktive piano roll-spor. <b>+ Track → Paste track</b> sætter kopien ind sidst.",
+        "Et kopieret spor kan indsættes i et andet projekt. Indsættelsen er ét fortryd-trin.",
+    ])
     h2("Farver")
     p("Klik på farveknappen ved et spor for at åbne <b>farvevælgeren</b>:")
     bullets([
@@ -367,6 +389,43 @@ def content_da():
     h2("Anslagsstyrke (velocity)")
     p("Feltet nederst viser hver tones anslagsstyrke som en lodret streg. Klik og træk hen over stregerne for at ændre den. Er nogle toner markeret, ændres kun de markerede. Bløde "
       "toner vises lidt mørkere i piano roll.")
+    h2("Sustain-pedal")
+    p("Feltet over anslagsstyrke-feltet er sporets <b>sustain-pedal</b> (MIDI CC 64): <b>100 %</b> (øverst) er pedal nede og "
+      "<b>0 %</b> (nederst) er pedal oppe. Uden punkter ligger linjen på 0 %. Området, hvor pedalen er nede, er farvet orange.")
+    table(["Handling", "Sådan"], [
+        ["Indsæt et punkt", "<b>Klik</b> på linjen (følger snap og grid)."],
+        ["Pedal ned eller op i et stykke", "<b>Træk i et linjestykke</b> (mellem to punkter) op eller ned. Kun det stykke "
+                                           "flytter sig, så pedalen skifter i et trin."],
+        ["Skrå linje", "<b>Træk i et punkt</b> op eller ned: linjen bliver skrå på begge sider, så pedalen går gradvist ned "
+                       "eller op. Træk et punkt til siden for at flytte det i tid."],
+        ["Fjern et punkt", "<b>Dobbeltklik</b> på det, eller højreklik → <b>Delete point</b>."],
+        ["Fjern linjen", "Højreklik → <b>Remove the whole sustain line</b>."],
+    ], [45, 120])
+    bullets([
+        "Værdien vises i %, mens du trækker. Alle ændringer kan fortrydes.",
+        "De indbyggede lyde regner 50 % og derover som pedal nede. Plugins, der kan halvpedal, får hele forløbet.",
+        "Pedalen slippes, når du stopper, hopper eller looper, og sættes tilbage til linjens værdi, når afspilningen fortsætter.",
+        "Et spor uden sustain-linje rører aldrig pedalen, så pedalen på dit MIDI-keyboard stadig virker.",
+        "Linjen gemmes i projektet og er med i eksport af sang og MIDI. CC 64 i importerede MIDI-filer bliver til en sustain-linje.",
+    ])
+    h2("Human Touch")
+    p("Tryk <b>Touch</b> på et instrumentspor (eller højreklik → <b>Human Touch...</b>, eller <b>Edit → Human Touch</b>) "
+      "for at give tonerne, der allerede ligger i piano roll, små tilfældige variationer, så programmerede stemmer lyder "
+      "mindre mekaniske.")
+    table(["Indstilling", "Betydning"], [
+        ["<b>Notes affected</b>", "Hvor mange toner der ændres. De vælges tilfældigt."],
+        ["<b>Placement</b>", "Hvor langt en tone må flytte sig tidligere eller senere. 100 % = op til en 1/16-node. "
+                             "Vinduet viser værdien i millisekunder ved det aktuelle tempo."],
+        ["<b>Length</b>", "Hvor meget en tone må blive kortere eller længere, i % af dens egen længde."],
+        ["<b>Velocity</b>", "Hvor meget en tone må blive svagere eller kraftigere (slået fra som standard)."],
+        ["<b>Only notes that have not had Human Touch yet</b>", "Til: toner, der er ændret før, bliver liggende, så du kan "
+                                                               "tilføje flere toner og bruge Human Touch igen på kun de nye."],
+    ], [55, 110])
+    bullets([
+        "Klik <b>Apply Human Touch</b>. Hver kørsel er ét fortryd-trin. Vinduet husker dine værdier.",
+        "Toner på samme tangent overlapper aldrig og bytter aldrig plads, så der kommer ingen klik eller hængende toner. "
+        "En tone, der ville løbe ind i den næste, bliver gjort kortere.",
+    ])
     h2("Zoom og rul")
     table(["Mus / trackpad", "Virkning"], [
         ["Rul", "Rul op/ned (og til siden med trackpad)."],
@@ -513,7 +572,7 @@ def content_da():
         ["<b>MP3</b>", "Spiller overalt; små filer. 320 kbps lyder praktisk talt som originalen."],
         ["<b>OGG Vorbis</b>", "Frit, åbent format med små filer og meget god lyd."],
         ["<b>M4A (AAC)</b>", "Som i Apple Music og iTunes; små filer med meget god lyd."],
-        ["<b>MIDI</b>", "Kun toner, ingen lyd – til andre musik- og nodeprogrammer."],
+        ["<b>MIDI</b>", "Toner og sustain-pedal, ingen lyd – til andre musik- og nodeprogrammer."],
     ], [35, 130])
     bullets([
         "<b>Range</b>: hele sangen, eller kun stykket mellem loop-markørerne.",
@@ -561,6 +620,8 @@ def content_da():
         ["⌘/Ctrl+E", "Eksportér sangen (WAV, MP3, OGG, FLAC, MIDI, M4A)"],
         ["⌘/Ctrl+A", "Markér alle toner"],
         ["⌘/Ctrl+C / X / V", "Kopiér / klip / indsæt toner"],
+        ["⌘/Ctrl+Shift+C / V", "Kopiér aktivt spor / indsæt spor"],
+        ["⌘/Ctrl+D", "Duplikér aktivt spor"],
         ["Delete / Backspace", "Slet markerede toner"],
         ["↑ / ↓", "Transponér markerede toner en halvtone"],
         ["Shift+↑ / ↓", "Transponér markerede toner en oktav"],

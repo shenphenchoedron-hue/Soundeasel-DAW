@@ -1,4 +1,5 @@
 #include "AppContext.h"
+#include <unordered_map>
 #include "io/MidiFile.h"
 #include "io/MusicXml.h"
 #include "io/ProjectSerializer.h"
@@ -181,14 +182,18 @@ juce::String AppContext::pluginError(model::TrackId id) const
 
 void AppContext::captureAllPluginStates()
 {
-    for (auto& t : project.tracks()) captureInsertStates(*t);
-    for (auto& t : project.tracks())
-        if (auto* mt = dynamic_cast<model::MidiTrack*>(t.get()))
-            if (!isPluginMissing(mt->id()))
-                if (auto* inst = engine->instrument(mt->id())) {
-                    auto state = inst->getState();
-                    mt->plugin.stateBase64 = state.getSize() ? state.toBase64Encoding().toStdString() : std::string();
-                }
+    for (auto& t : project.tracks()) captureTrackPluginStates(*t);
+}
+
+void AppContext::captureTrackPluginStates(model::Track& t)
+{
+    captureInsertStates(t);
+    if (auto* mt = dynamic_cast<model::MidiTrack*>(&t))
+        if (!isPluginMissing(mt->id()))
+            if (auto* inst = engine->instrument(mt->id())) {
+                auto state = inst->getState();
+                mt->plugin.stateBase64 = state.getSize() ? state.toBase64Encoding().toStdString() : std::string();
+            }
 }
 
 // ---------------------------------------------------------------- files
@@ -627,6 +632,98 @@ void AppContext::endTrackEdit(model::TrackId id)
     undo.perform(std::make_unique<model::SetTrackPropertiesCommand>(id, before, after));
 }
 
+// ---------------------------------------------------------------- copy & paste tracks
+std::vector<std::unique_ptr<model::Track>> AppContext::snapshotTracks(model::TrackId id)
+{
+    std::vector<std::unique_ptr<model::Track>> v;
+    auto* t = project.track(id);
+    if (!t) return v;
+    std::vector<model::Track*> sources;
+    if (auto* m = dynamic_cast<model::MidiTrack*>(t); m && m->isStepLine())
+        for (auto* line : stepLines(m->stepGroup)) sources.push_back(line); // the whole step sequencer
+    else
+        sources.push_back(t);
+    for (auto* s : sources) {
+        captureTrackPluginStates(*s); // the copy gets the plugins' settings as they are right now
+        v.push_back(s->clone());
+    }
+    return v;
+}
+
+void AppContext::copyTrack(model::TrackId id)
+{
+    auto snap = snapshotTracks(id);
+    if (snap.empty()) return;
+    trackClipboard = std::move(snap);
+    sendChangeMessage(); // menus and buttons that offer "Paste track"
+}
+
+void AppContext::duplicateTrack(model::TrackId id)
+{
+    pasteTracks(snapshotTracks(id), id); // the clipboard is left alone
+}
+
+juce::String AppContext::copiedTrackName() const
+{
+    if (trackClipboard.empty()) return {};
+    const auto& first = *trackClipboard.front();
+    if (auto* m = dynamic_cast<const model::MidiTrack*>(&first); m && m->isStepLine()) {
+        const juce::String title = m->step.title.empty() ? juce::String("Step sequencer") : juce::String(m->step.title);
+        return title + " (" + juce::String((int)trackClipboard.size()) + (trackClipboard.size() == 1 ? " line)" : " lines)");
+    }
+    return juce::String(first.name);
+}
+
+void AppContext::pasteTrack(model::TrackId after) { pasteTracks(trackClipboard, after); }
+
+void AppContext::pasteTracks(const std::vector<std::unique_ptr<model::Track>>& sources, model::TrackId after)
+{
+    if (sources.empty()) return;
+    int index = -1; // end
+    if (auto* t = project.track(after)) {
+        index = project.indexOf(after) + 1;
+        if (auto* m = dynamic_cast<model::MidiTrack*>(t); m && m->isStepLine())
+            for (auto* line : stepLines(m->stepGroup)) index = std::max(index, project.indexOf(line->id()) + 1);
+    }
+    auto nameTaken = [&](const std::string& n) {
+        for (auto& t : project.tracks()) if (t->name == n) return true;
+        return false;
+    };
+    const bool stepSeq = [&] { auto* m = dynamic_cast<const model::MidiTrack*>(sources.front().get()); return m && m->isStepLine(); }();
+    std::vector<std::unique_ptr<model::Track>> copies;
+    for (auto& src : sources) {
+        auto c = src->clone();
+        if (auto* m = dynamic_cast<model::MidiTrack*>(c.get()); m && m->isStepLine()) {
+            // Lines keep their names (Kick, Snare, ...); a named step sequencer is marked as a copy.
+            if (!m->step.title.empty()) m->step.title += " (copy)";
+        } else {
+            std::string n = c->name + " (copy)";
+            for (int i = 2; nameTaken(n); ++i) n = c->name + " (copy " + std::to_string(i) + ")";
+            c->name = n;
+        }
+        copies.push_back(std::move(c));
+    }
+    undo.perform(std::make_unique<model::PasteTracksCommand>(std::move(copies), index, stepSeq ? "Paste step sequencer" : "Paste track"));
+}
+
+// ---------------------------------------------------------------- Human Touch
+int AppContext::humanizeTrack(model::TrackId id, const model::HumanizeSettings& s)
+{
+    auto* t = project.midiTrack(id);
+    if (!t || t->isStepLine()) return 0; // step sequencer notes are generated from the pattern
+    const auto seed = (std::uint32_t)juce::Random::getSystemRandom().nextInt();
+    auto after = model::humanizeNotes(t->notes(), s, seed);
+    if (after.empty()) return 0;
+    std::vector<model::Note> before;
+    before.reserve(after.size());
+    std::unordered_map<model::NoteId, const model::Note*> byId;
+    for (auto& n : t->notes()) byId.emplace(n.id, &n);
+    for (auto& n : after) before.push_back(*byId.at(n.id));
+    const int count = (int)after.size();
+    undo.perform(std::make_unique<model::ModifyNotesCommand>(id, std::move(before), std::move(after), "Human Touch"));
+    return count;
+}
+
 // ---------------------------------------------------------------- audio tracks
 std::vector<model::AudioTrack*> AppContext::audioTracks() const
 {
@@ -701,6 +798,15 @@ void AppContext::setVolumeAutomation(model::TrackId id, std::vector<model::Autom
     model::normalizeAutomation(after);
     if (after == a->volumeAutomation) return;
     undo.perform(std::make_unique<model::SetVolumeAutomationCommand>(id, a->volumeAutomation, std::move(after)));
+}
+
+void AppContext::setSustain(model::TrackId id, std::vector<model::AutomationPoint> after)
+{
+    auto* t = project.midiTrack(id);
+    if (!t) return;
+    model::normalizeAutomation(after, 1.0f);
+    if (after == t->sustain) return;
+    undo.perform(std::make_unique<model::SetSustainCommand>(id, t->sustain, std::move(after)));
 }
 
 void AppContext::setShowVolumeLine(model::TrackId id, bool on)

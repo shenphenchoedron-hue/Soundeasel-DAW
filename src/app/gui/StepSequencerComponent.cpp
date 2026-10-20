@@ -167,6 +167,7 @@ public:
     void mouseDown(const juce::MouseEvent& e) override
     {
         auto* t = app.project.midiTrack(id);
+        if (t && e.x < owner.cardWidth && e.mods.isPopupMenu()) { showTrackMenu(app, id); return; } // copy / paste the step sequencer
         if (!t || e.x < owner.cellsX()) return;
         const int i = stepIndexAt(e.position.x, t->step);
         if (i < 0) return;
@@ -242,7 +243,8 @@ public:
         title.setFont(theme::uiFont(14.0f, true));
         title.setColour(juce::Label::textColourId, tc::text);
         title.setEditable(false, true);
-        title.setTooltip("Double-click to rename this step sequencer");
+        title.setTooltip("Double-click to rename this step sequencer, right-click to copy, paste or duplicate it");
+        title.addMouseListener(&titleMenu, false);
         title.onTextChange = [this] {
             const auto t = title.getText().trim().toStdString();
             changeAll([t](model::StepPattern& p) { p.title = t; }, "Rename step sequencer");
@@ -420,6 +422,7 @@ public:
     void mouseDown(const juce::MouseEvent& e) override
     {
         const auto lines = app.stepLines(group);
+        if (!lines.empty() && e.x < owner.cardWidth && e.mods.isPopupMenu()) { showTrackMenu(app, lines.front()->id()); return; } // copy / paste / duplicate
         if (lines.empty() || e.x < owner.cellsX() || e.y >= headerH()) return;
         const auto& p = lines.front()->step;
         const double tick = owner.roll.xToTick(e.x - owner.cellsX()) - (double)p.startTick;
@@ -479,6 +482,7 @@ private:
     std::uint64_t group;
     juce::Colour colour{0xffe08f4f};
     std::vector<std::unique_ptr<LineRow>> rows;
+    TrackMenuOnRightClick titleMenu{app, [this] { const auto l = app.stepLines(group); return l.empty() ? model::TrackId(0) : l.front()->id(); }}; // before `title`
     juce::Label title, barsLabel{{}, "Bars"}, sizeLabel{{}, "Step"}, startLabel{{}, "Start"},
         hint{{}, "Right-click a bar for copy/clear"};
     juce::TextButton addLineBtn{"+ Line"}, delBtn{"X"}, collapseBtn;

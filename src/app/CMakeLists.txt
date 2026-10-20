@@ -39,6 +39,8 @@ target_sources(SoundeaselDAW PRIVATE
     gui/EqEditor.cpp
     gui/InsertsComponent.cpp
     gui/ExportDialog.cpp
+    gui/HumanTouchDialog.cpp
+    gui/AutomationLineEditor.cpp
 )
 
 # Song export: M4A (AAC) is encoded by macOS itself (Core Audio); elsewhere FFmpeg is used.
